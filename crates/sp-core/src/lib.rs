@@ -9,7 +9,7 @@ pub mod error;
 pub mod keymaterial;
 pub mod keypolicy;
 
-pub use entry::EntryModel;
+pub use entry::{CustomField, EntryModel};
 pub use error::SpError;
 pub use keymaterial::{CredentialFactors, SecureString};
 pub use keypolicy::KdfParams;

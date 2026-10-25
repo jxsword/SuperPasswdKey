@@ -1,0 +1,450 @@
+//! 命令实现（H3）：init / item / read / clip。
+
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+
+use zeroize::Zeroizing;
+
+use sp_kdbx::engine::db::Database;
+
+use sp_core::{calibration, CredentialFactors, CustomField, EntryModel, SpError};
+
+use crate::config::{self, Config};
+use crate::integrity;
+
+// ---------- 公共 ----------
+
+fn resolve_db(cli_db: Option<&Path>, cfg: &Config) -> Result<PathBuf, SpError> {
+    cli_db
+        .map(PathBuf::from)
+        .or_else(|| cfg.default_db.clone())
+        .ok_or_else(|| {
+            SpError::Config(
+                "no database configured; run `sp init` first or pass --db <path>".into(),
+            )
+        })
+}
+
+/// 读取秘密输入（SP-F-105）：TTY → rpassword 隐藏回显；非 TTY（脚本/CI）→ stdin 行读取。
+/// Windows 实测：rpassword::read_password 只读控制台 CONIN$，管道 stdin 会永久阻塞。
+fn read_secret(prompt: &str) -> Result<Zeroizing<String>, SpError> {
+    use std::io::IsTerminal;
+    print!("{prompt}");
+    let _ = std::io::stdout().flush();
+    if std::io::stdin().is_terminal() {
+        let p =
+            rpassword::read_password().map_err(|e| SpError::Io(format!("read password: {e}")))?;
+        Ok(Zeroizing::new(p))
+    } else {
+        let mut line = String::new();
+        std::io::stdin()
+            .read_line(&mut line)
+            .map_err(|e| SpError::Io(format!("read stdin: {e}")))?;
+        while line.ends_with('\n') || line.ends_with('\r') {
+            line.pop();
+        }
+        Ok(Zeroizing::new(line))
+    }
+}
+
+/// 交互收集凭据并解锁（SP-F-105：v0.1 每命令独立解锁，无跨进程会话）
+fn unlock(
+    db: &Path,
+    cli_keyfile: Option<&Path>,
+    cfg: &Config,
+) -> Result<CredentialFactors, SpError> {
+    let keyfile = cli_keyfile
+        .map(PathBuf::from)
+        .or_else(|| cfg.keyfile.clone());
+    let password = read_secret(&format!("Enter password to unlock {}: ", db.display()))?;
+    Ok(CredentialFactors {
+        password,
+        keyfile_path: keyfile,
+    })
+}
+
+fn open_with_config(
+    db: &Path,
+    cli_keyfile: Option<&Path>,
+    cfg: &Config,
+    mut cfg_update: impl FnMut(&Config) -> Result<(), SpError>,
+) -> Result<(Database, CredentialFactors), SpError> {
+    let factors = unlock(db, cli_keyfile, cfg)?;
+    let database = match sp_kdbx::open_db(db, &factors) {
+        Ok(d) => d,
+        Err(e) => {
+            // SP-N-311：打开失败且哈希≠基线 → 外部修改提示
+            if let Some(_current) = integrity::detect_external_change(db, &cfg.baseline_sha256) {
+                eprintln!(
+                    "WARNING: database hash differs from last known baseline; \
+                     the file may have been externally modified or corrupted."
+                );
+            }
+            return Err(e);
+        }
+    };
+    // 打开成功 → 静默更新基线（多设备同步为正常场景，防误报——复审 R2-3）
+    if let Ok(h) = integrity::sha256_file(db) {
+        if cfg.baseline_sha256.as_deref() != Some(h.as_str()) {
+            let mut c = cfg.clone();
+            c.baseline_sha256 = Some(h);
+            cfg_update(&c)?;
+        }
+    }
+    Ok((database, factors))
+}
+
+fn save_and_backup(
+    db: &mut Database,
+    db_path: &Path,
+    factors: &CredentialFactors,
+) -> Result<(), SpError> {
+    sp_kdbx::save_atomic(db, db_path, factors)?;
+    integrity::rotate_backup(db_path, 10) // SP-N-312：滚动 10 份
+}
+
+// ---------- init ----------
+
+pub fn init(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    kdf_target_ms: u64,
+) -> Result<(), SpError> {
+    let mut cfg = config::load()?;
+    let db = resolve_db(cli_db, &Config::default())?;
+    if db.exists() {
+        return Err(SpError::Parameter(format!(
+            "database already exists at {} (use --db for another location)",
+            db.display()
+        )));
+    }
+    if let Some(parent) = db.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| SpError::Io(format!("create db dir: {e}")))?;
+    }
+
+    let pw1 = read_secret("Choose a master password: ")?;
+    let pw2 = read_secret("Confirm master password: ")?;
+    if pw1.as_str() != pw2.as_str() {
+        return Err(SpError::Parameter("passwords do not match".into()));
+    }
+
+    // keyfile：生成官方 XML v1.0（DR-005）
+    let keyfile = match cli_keyfile {
+        Some(k) => PathBuf::from(k),
+        None => {
+            let k = db.with_extension("keyfile");
+            println!(
+                "Generating keyfile (XML v1.0) at {} — keep it on a SEPARATE medium!",
+                k.display()
+            );
+            k
+        }
+    };
+    if !keyfile.exists() {
+        sp_kdbx::generate_keyfile(&keyfile)?;
+    }
+
+    // KDF 校准（SP-N-302）：目标毫秒
+    println!("Calibrating Argon2id to ~{kdf_target_ms}ms (this takes a moment)...");
+    let params = calibration::calibrate(kdf_target_ms)?;
+    println!(
+        "KDF: Argon2id m={}MiB t={} p={}",
+        params.memory_kib / 1024,
+        params.iterations,
+        params.parallelism
+    );
+
+    let factors = CredentialFactors {
+        password: pw1,
+        keyfile_path: Some(keyfile.clone()),
+    };
+    sp_kdbx::create_db(&db, &factors, &params)?;
+
+    // 写配置 + 基线
+    cfg.default_db = Some(db.clone());
+    cfg.keyfile = Some(keyfile);
+    cfg.baseline_sha256 = Some(integrity::sha256_file(&db)?);
+    config::save(&cfg)?;
+    println!("Database created at {}", db.display());
+    println!("REMINDER: back up the keyfile to a separate medium (USB/another device).");
+    Ok(())
+}
+
+// ---------- item ----------
+
+/// item create 的参数包（避免长参数列表）
+pub struct CreateOptions {
+    pub cli_db: Option<PathBuf>,
+    pub cli_keyfile: Option<PathBuf>,
+    pub title: String,
+    pub username: Option<String>,
+    pub url: Option<String>,
+    pub notes: Option<String>,
+    pub fields: Vec<(String, String)>,
+    pub totp: Option<String>,
+    pub attach: Option<PathBuf>,
+}
+
+pub fn item_create(opts: CreateOptions) -> Result<(), SpError> {
+    let CreateOptions {
+        cli_db,
+        cli_keyfile,
+        title,
+        username,
+        url,
+        notes,
+        fields,
+        totp,
+        attach,
+    } = opts;
+    let cli_db = cli_db.as_deref();
+    let cli_keyfile = cli_keyfile.as_deref();
+    let cfg = config::load()?;
+    let db_path = resolve_db(cli_db, &cfg)?;
+    let mut c = cfg.clone();
+    let (mut db, factors) = open_with_config(&db_path, cli_keyfile, &cfg, |cc| {
+        c = cc.clone();
+        config::save(cc)
+    })?;
+    // 解锁后再收集条目密码（顺序修正：解锁优先）
+    let pw = read_secret("Entry password (empty to skip): ")?;
+
+    let attach_name = attach
+        .as_ref()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()));
+    let model = EntryModel {
+        title: title.clone(),
+        username,
+        password: if pw.is_empty() { None } else { Some(pw) },
+        url,
+        notes,
+        custom_fields: fields
+            .into_iter()
+            .map(|(name, value)| CustomField {
+                name,
+                value: Zeroizing::new(value),
+                protected: false, // v0.1 限制（DR-005 记录）
+            })
+            .collect(),
+        otp: totp,
+    };
+    sp_kdbx::add_entry(&mut db, &model)?;
+    // 附件（SP-F-104）
+    if let (Some(path), Some(name)) = (&attach, &attach_name) {
+        let data = std::fs::read(path).map_err(|e| SpError::Io(format!("read attachment: {e}")))?;
+        sp_kdbx::add_attachment(&mut db, &title, name, &data)?;
+    }
+    save_and_backup(&mut db, &db_path, &factors)?;
+    println!("Created entry '{title}'");
+    Ok(())
+}
+
+pub fn item_get(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    title: String,
+    field: Option<String>,
+    show_totp: bool,
+) -> Result<(), SpError> {
+    let cfg = config::load()?;
+    let db_path = resolve_db(cli_db, &cfg)?;
+    let c2 = cfg.clone();
+    let (db, _factors) = open_with_config(&db_path, cli_keyfile, &cfg, |cc| {
+        let mut c = c2.clone();
+        c.baseline_sha256 = cc.baseline_sha256.clone();
+        config::save(cc)
+    })?;
+    let m = sp_kdbx::find_entry(&db, &title)?;
+
+    if show_totp {
+        let code = sp_kdbx::entry_totp_now(&db, &title)?;
+        println!("{code}");
+        return Ok(());
+    }
+    match field {
+        Some(f) => {
+            let v = m
+                .custom_fields
+                .iter()
+                .find(|c| c.name == f)
+                .map(|c| c.value.as_str().to_string())
+                .or_else(|| match f.as_str() {
+                    "Title" => Some(m.title.clone()),
+                    "UserName" => m.username.clone(),
+                    "Password" => m.password.as_ref().map(|p| p.as_str().to_string()),
+                    "URL" => m.url.clone(),
+                    "Notes" => m.notes.clone(),
+                    _ => None,
+                })
+                .ok_or_else(|| SpError::NotFound(format!("{title}/{f}")))?;
+            println!("{v}");
+        }
+        None => {
+            println!("Title: {}", m.title);
+            println!("UserName: {}", m.username.unwrap_or_default());
+            println!(
+                "Password: {}",
+                m.password.as_ref().map(|p| p.as_str()).unwrap_or("")
+            );
+            println!("URL: {}", m.url.unwrap_or_default());
+            if !m.notes.as_deref().unwrap_or("").is_empty() {
+                println!("Notes: {}", m.notes.as_deref().unwrap_or(""));
+            }
+            for c in &m.custom_fields {
+                println!("{}: {}", c.name, c.value.as_str());
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn item_list(cli_db: Option<&Path>, cli_keyfile: Option<&Path>) -> Result<(), SpError> {
+    let cfg = config::load()?;
+    let db_path = resolve_db(cli_db, &cfg)?;
+    let c2 = cfg.clone();
+    let (db, _factors) = open_with_config(&db_path, cli_keyfile, &cfg, |cc| {
+        let mut c = c2.clone();
+        c.baseline_sha256 = cc.baseline_sha256.clone();
+        config::save(cc)
+    })?;
+    for t in sp_kdbx::list_titles(&db) {
+        println!("{t}");
+    }
+    Ok(())
+}
+
+pub fn item_delete(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    title: String,
+) -> Result<(), SpError> {
+    let cfg = config::load()?;
+    let db_path = resolve_db(cli_db, &cfg)?;
+    let c2 = cfg.clone();
+    let (mut db, factors) = open_with_config(&db_path, cli_keyfile, &cfg, |cc| {
+        let mut c = c2.clone();
+        c.baseline_sha256 = cc.baseline_sha256.clone();
+        config::save(cc)
+    })?;
+    sp_kdbx::delete_entry(&mut db, &title)?;
+    save_and_backup(&mut db, &db_path, &factors)?;
+    println!("Deleted entry '{title}'");
+    Ok(())
+}
+
+// ---------- read / clip ----------
+
+/// 解析引用 URI（SP-F-202）："sp://<title>/<field>" 或 "<title>/<field>"；段不可省略
+fn parse_uri(uri: &str) -> Result<(String, String), SpError> {
+    let body = uri.strip_prefix("sp://").unwrap_or(uri);
+    let (title, field) = body
+        .split_once('/')
+        .ok_or_else(|| SpError::Parameter(format!("uri '{uri}' must be <title>/<field>")))?;
+    if title.is_empty() || field.is_empty() {
+        return Err(SpError::Parameter(format!(
+            "uri '{uri}' must be <title>/<field>"
+        )));
+    }
+    Ok((title.to_string(), field.to_string()))
+}
+
+fn read_value(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    uri: &str,
+) -> Result<Zeroizing<String>, SpError> {
+    let cfg = config::load()?;
+    let db_path = resolve_db(cli_db, &cfg)?;
+    let c2 = cfg.clone();
+    let (db, _factors) = open_with_config(&db_path, cli_keyfile, &cfg, |cc| {
+        let mut c = c2.clone();
+        c.baseline_sha256 = cc.baseline_sha256.clone();
+        config::save(cc)
+    })?;
+    let (title, field) = parse_uri(uri)?;
+    let m = sp_kdbx::find_entry(&db, &title)?;
+    let v = match field.as_str() {
+        "Title" => Some(m.title),
+        "UserName" => m.username,
+        "Password" => m.password.as_ref().map(|p| p.as_str().to_string()),
+        "URL" => m.url,
+        "Notes" => m.notes,
+        "totp" | "TOTP" => {
+            let code = sp_kdbx::entry_totp_now(&db, &title)?;
+            return Ok(Zeroizing::new(code));
+        }
+        f => m
+            .custom_fields
+            .iter()
+            .find(|c| c.name == f)
+            .map(|c| c.value.as_str().to_string()),
+    }
+    .ok_or_else(|| SpError::NotFound(format!("{title}/{field}")))?;
+    Ok(Zeroizing::new(v))
+}
+
+pub fn read(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    uri: String,
+    no_newline: bool,
+    out_file: Option<PathBuf>,
+) -> Result<(), SpError> {
+    let value = read_value(cli_db, cli_keyfile, &uri)?;
+    match out_file {
+        Some(path) => {
+            std::fs::write(&path, value.as_bytes())
+                .map_err(|e| SpError::Io(format!("write out-file: {e}")))?;
+            restrict_perms(&path)?;
+        }
+        None => {
+            if no_newline {
+                print!("{}", value.as_str());
+            } else {
+                println!("{}", value.as_str());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// --out-file 权限：Windows ACL 限当前用户（复审 R2 修正：无 POSIX 0600 语义）
+fn restrict_perms(path: &Path) -> Result<(), SpError> {
+    #[cfg(windows)]
+    {
+        // icacls：移除继承、仅保留当前用户（等价 0600 的 Windows 语义）
+        let _ = std::process::Command::new("icacls")
+            .arg(path)
+            .args(["/inheritance:r", "/grant:r", "%username%:F"])
+            .status();
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| SpError::Io(format!("chmod: {e}")))?;
+    }
+    Ok(())
+}
+
+pub fn clip(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    uri: String,
+    timeout_secs: Option<u64>,
+) -> Result<(), SpError> {
+    let value = read_value(cli_db, cli_keyfile, &uri)?;
+    let cfg = config::load()?;
+    let timeout = timeout_secs.unwrap_or(cfg.clip_timeout_secs);
+    let mut ctx = arboard::Clipboard::new()
+        .map_err(|e| SpError::Clipboard(format!("init clipboard: {e}")))?;
+    ctx.set_text(value.as_str().to_string())
+        .map_err(|e| SpError::Clipboard(format!("set clipboard: {e}")))?;
+    println!(
+        "Copied to clipboard; clearing in {timeout}s (Win+V history is NOT controlled by sp)."
+    );
+    std::thread::sleep(std::time::Duration::from_secs(timeout));
+    ctx.set_text(String::new())
+        .map_err(|e| SpError::Clipboard(format!("clear clipboard: {e}")))?;
+    Ok(())
+}
