@@ -39,8 +39,12 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
-      - name: cargo deny (licenses / bans / advisories)
-        uses: EmbarkStudios/cargo-deny-action@v2
+  deny:
+    # cargo-deny-action 是容器 action，仅支持 Linux（首次 CI 实测教训）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
 
       - name: Build release (crt-static, SP-C-104 packaging)
         if: startsWith(github.ref, 'refs/tags/v')
