@@ -31,3 +31,11 @@
 - 理由: 服务端轨若被闭源 fork 会破坏"可结构性证伪投毒"的生态承诺
 - 影响: 全仓库 LICENSE；依赖兼容性已核（RustCrypto MIT/Apache、gitleaks 规则 MIT 内嵌保留署名）
 - 记录时间 / 会话: 2026-10-25 / SuperPasswdKey 调研会话
+
+## DR-005 2026-10-26 KDBX4 适配层选型 keepass-ng 0.11 [状态: 生效]
+- 背景: H1 spike（R1 头号风险）。keepass-rs 的 KDBX4 写入为 experimental；活跃 fork keepass-ng（crates.io 0.11.12，MIT 许可，H1 实测核实）。
+- 选项与权衡: keepass-ng 0.11（save_kdbx4 实测可用，round-trip 双向互操作 KeePassXC 2.8.0 全通过，弃用理由仅"实验性"标注）; keepass-rs（写入 experimental 同源旧版，弃用）; 按 KDBX4 规范自实现写路径（+3~4 周，仅在 keepass-ng 出现写入缺陷时启用——trait 抽象已预留，弃用）
+- 结论: keepass_ng 适配层（crates/sp-kdbx），features = save_kdbx4 + totp
+- 理由: 实测证据优于标签；round-trip 测试（crates/sp-kdbx/tests/roundtrip.rs）为互操作回归护栏
+- 影响: 实测发现 3 个互操作坑并已文档化：①keyfile 必须官方 XML v1.0 格式（legacy raw-32B 语义分歧：keepass_ng 直接用字节、KeePassXC SHA-256(内容)）；②Windows keepassxc-cli 无管道密码能力（测试用 keyfile-only + --no-password）；③KeePassXC "otp" 属性仅接受 otpauth:// URL 或 KeeOtp 格式（seed?period= 不解析）。KDF 参数经 KdfConfig::Argon2id（memory 单位=字节）
+- 记录时间 / 会话: 2026-10-26 / SuperPasswdKey 开发会话
