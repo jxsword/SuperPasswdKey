@@ -44,7 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # 容器内无 rust-toolchain.toml 锁定版本（1.99.1 musl 未预装），覆盖为 stable
       - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: "stable"
 
       - name: Build release (crt-static, SP-C-104 packaging)
         if: startsWith(github.ref, 'refs/tags/v')
