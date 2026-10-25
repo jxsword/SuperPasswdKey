@@ -10,3 +10,7 @@ sp-core.workspace = true
 keepass-ng.workspace = true
 thiserror.workspace = true
 zeroize.workspace = true
+
+[dev-dependencies]
+getrandom.workspace = true
+base64.workspace = true
