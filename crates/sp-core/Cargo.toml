@@ -9,5 +9,6 @@ description = "SuperPasswdKey core: key policy, entry model, error model (no IO)
 zeroize.workspace = true
 secrecy.workspace = true
 thiserror.workspace = true
+argon2.workspace = true
 
 [dev-dependencies]

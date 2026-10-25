@@ -3,10 +3,16 @@
 //! 职责边界（design_docs/01）：库内加密由 KDBX4 格式承担，本 crate 不做二次加密；
 //! 聚焦 KDF 参数策略、双因子组合、内存卫生（zeroize）与统一错误模型。
 
+pub mod calibration;
+pub mod entry;
 pub mod error;
+pub mod keymaterial;
 pub mod keypolicy;
 
+pub use entry::EntryModel;
 pub use error::SpError;
+pub use keymaterial::{CredentialFactors, SecureString};
+pub use keypolicy::KdfParams;
 
 /// 库名（生成器标识，写入 KDBX Meta）
 pub const GENERATOR_NAME: &str = concat!("SuperPasswdKey ", env!("CARGO_PKG_VERSION"));
