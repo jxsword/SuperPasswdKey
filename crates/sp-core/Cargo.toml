@@ -1,0 +1,13 @@
+[package]
+name = "sp-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SuperPasswdKey core: key policy, entry model, error model (no IO)"
+
+[dependencies]
+zeroize.workspace = true
+secrecy.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]

@@ -1,0 +1,22 @@
+@startuml
+interface KdbxAdapter {
+  +create(path, creds, params) : Result
+  +open(path, creds) : Result<DbHandle>
+  +entry_crud(...)
+  +attachments(...)
+  +save_atomic(db) : Result
+  +format_version(path) : FormatInfo
+}
+class KeepassNgAdapter {
+  -db: Database
+}
+class DbHandle {
+  +find_by_uri(uri) : EntryView
+  +upsert(entry: EntryModel)
+  +delete_to_recycle(uri)
+  +list() : Vec<EntryView>
+}
+KdbxAdapter <|.. KeepassNgAdapter : v0.1 唯一实现
+KeepassNgAdapter --> DbHandle
+note right of KdbxAdapter : 回退实现 KeepassRsAdapter\n（DR-005 备选）不改上层
+@enduml

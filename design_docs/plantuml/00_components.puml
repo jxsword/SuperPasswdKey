@@ -1,0 +1,22 @@
+@startuml
+skinparam componentStyle rectangle
+package "sp-cli (bin)" {
+  [CLI 命令层\nclap 命令族/退出码]
+  [F8 注入运行时\nrun/inject/遮蔽]
+}
+package "sp-core (lib)" {
+  [密钥策略层\nKDF参数/双因子/zeroize]
+  [条目模型\n类型化字段/history]
+  [错误模型 SpError]
+}
+package "sp-kdbx (lib)" {
+  [KDBX4 适配层\nkeepass_ng 封装]
+}
+[sp-cli] --> [sp-core]
+[sp-cli] --> [F8 注入运行时]
+[F8 注入运行时] --> [sp-core]
+[sp-core] --> [条目模型]
+[sp-kdbx] --> [keepass_ng crate]
+[sp-core] --> [sp-kdbx]
+[sp-cli] --> [arboard / rpassword / clap]
+@enduml

@@ -1,0 +1,28 @@
+@startuml
+class KdfParams {
+  +memory_kib: u32
+  +iterations: u32
+  +parallelism: u32
+  +calibrated(ms_target=700) : KdfParams
+  +validate() : Result
+}
+class CredentialFactors {
+  -password: SecVec<u8>
+  -keyfile_path: Option<PathBuf>
+  +from_interactive() : Self
+  +to_keepass_credentials() : Credentials
+}
+class SessionGuard {
+  -db: Database
+  -_factors: CredentialFactors
+  +entries() / get(uri) / save()
+}
+class SpError <<enum>> {
+  Credentials / NotFound / Format /
+  Config / Io / Clipboard / Parameter
+}
+KdfParams ..> CredentialFactors : init 校准
+CredentialFactors "1" --o "1" SessionGuard : 构成
+SessionGuard ..> SpError
+SessionGuard ..> sp_kdbx_KdbxAdapter : 委托库操作
+@enduml

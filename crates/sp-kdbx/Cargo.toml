@@ -1,0 +1,12 @@
+[package]
+name = "sp-kdbx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SuperPasswdKey KDBX4 adapter (keepass_ng) - DR-005 candidate"
+
+[dependencies]
+sp-core.workspace = true
+keepass-ng.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true

@@ -1,0 +1,32 @@
+# Build artifacts
+/target
+**/target/
+
+# 密码库与密钥材料 —— 绝不入仓（红线）
+*.kdbx
+*.kdbx.bak
+*.keyx
+keyfile*
+*.sp-backup/
+*.sp-backup*/
+
+# 环境与本地配置
+.env
+.env.*
+!.env.example
+sp.toml
+
+# 测试临时产物
+/tmp-testing/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# 编辑器
+.vscode/
+.idea/
+
+# 本地安全扫描器状态（不入仓）
+.mimosa/
+.zcode/

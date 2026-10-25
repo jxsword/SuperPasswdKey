@@ -1,0 +1,20 @@
+[package]
+name = "sp-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SuperPasswdKey CLI (sp)"
+
+[[bin]]
+name = "sp"
+path = "src/main.rs"
+
+[dependencies]
+sp-core.workspace = true
+sp-kdbx.workspace = true
+clap.workspace = true
+rpassword.workspace = true
+arboard.workspace = true
+anyhow.workspace = true
+toml.workspace = true
+serde.workspace = true

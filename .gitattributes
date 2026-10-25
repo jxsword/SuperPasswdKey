@@ -1,0 +1,15 @@
+# 强制 LF（步骤 2 WSL/Linux 兼容，SP-C-105）
+* text=auto eol=lf
+*.rs text eol=lf diff=rust
+*.toml text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.svg text eol=lf
+*.ps1 text eol=lf
+# 二进制例外
+*.png binary
+*.svg-files binary
+*.exe binary
+*.kdbx binary

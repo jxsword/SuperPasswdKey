@@ -1,0 +1,33 @@
+@startuml
+interface SourceParser {
+  +parse(input) : Vec<Finding>
+}
+class DotenvParser
+class CsvParser {
+  -column_mapping : ColumnMap
+}
+class BwJsonParser
+class EnvSnapshotParser {
+  note: std::env::vars 枚举\n纯内存,无临时文件
+}
+class RuleEngine {
+  -rules: Vec<GitleaksRule>
+}
+SourceParser <|.. DotenvParser
+SourceParser <|.. CsvParser
+SourceParser <|.. BwJsonParser
+SourceParser <|.. EnvSnapshotParser
+SourceParser <|.. RuleEngine
+class DedupEngine {
+  +l1_value_hash() / l2_url_user() / l3_fingerprint()
+}
+class ImportReport {
+  +counts / groups / conflicts / manual_review[]
+}
+class EntryCandidate
+class F0
+F0 : Finding {source,file,line,ruleId,secret,fingerprint}
+DedupEngine ..> EntryCandidate
+SourceParser --> F0 : 产出
+DedupEngine --> ImportReport
+@enduml
