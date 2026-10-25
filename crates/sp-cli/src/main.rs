@@ -4,6 +4,7 @@
 
 mod commands;
 mod config;
+mod f8;
 mod integrity;
 
 use std::path::PathBuf;
