@@ -16,12 +16,13 @@ description = "Local-first, zero-knowledge password/secret manager CLI with KDBX
 sp-core = { path = "crates/sp-core" }
 sp-kdbx = { path = "crates/sp-kdbx" }
 # KDBX
-keepass-ng = "0.11"
+keepass-ng = { version = "0.11", features = ["save_kdbx4", "totp"] }
 # 加密
 zeroize = { version = "1", features = ["zeroize_derive"] }
 secrecy = "0.10"
 argon2 = "0.5"
 getrandom = "0.2"
+base64 = "0.22"
 # CLI
 clap = { version = "4", features = ["derive"] }
 rpassword = "7"
