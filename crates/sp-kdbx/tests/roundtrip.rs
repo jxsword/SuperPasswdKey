@@ -52,7 +52,7 @@ fn create_test_db(path: &PathBuf, keyfile_path: &PathBuf) {
         },
         ..DatabaseConfig::default()
     };
-    let mut db = Database::new(config);
+    let db = Database::new(config);
 
     let mut entry = Entry::default();
     entry.set_title(Some("sp-roundtrip"));
@@ -124,7 +124,7 @@ fn composite_credentials_save_open_roundtrip() {
         },
         ..DatabaseConfig::default()
     };
-    let mut db = Database::new(config);
+    let db = Database::new(config);
     let mut entry = Entry::default();
     entry.set_title(Some("composite"));
     entry.set_password(Some("pw-protected-value"));
@@ -190,7 +190,7 @@ fn debug_otp_persists_after_save_reload() {
         },
         ..DatabaseConfig::default()
     };
-    let mut db = Database::new(config);
+    let db = Database::new(config);
     let mut entry = Entry::default();
     entry.set_title(Some("otpcheck"));
     entry.set_raw_otp_value(Some("JBSWY3DPEHPK3PXP?period=30&digits=6"));
