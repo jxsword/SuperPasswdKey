@@ -43,18 +43,23 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: cargo build --release --workspace
 
-      - name: Package (sp.exe + README + SHA256SUMS)
+      - name: Package (sp.exe + sp-nmhost.exe + README + SHA256SUMS)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           $out = "dist"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item target/release/sp.exe "$out/sp.exe"
+          Copy-Item target/release/sp-nmhost.exe "$out/sp-nmhost.exe"
           Copy-Item README.md "$out/README.md"
+          New-Item -ItemType Directory -Force -Path "$out/native-host" | Out-Null
+          Copy-Item native-host/register.ps1 "$out/native-host/"
+          Copy-Item native-host/unregister.ps1 "$out/native-host/" -ErrorAction SilentlyContinue
+          Copy-Item native-host/README.md "$out/native-host/"
           Push-Location $out
-          $h = Get-ChildItem -File | Get-FileHash -Algorithm SHA256
+          $h = Get-ChildItem -File -Recurse | Get-FileHash -Algorithm SHA256
           $h | ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), $_.Path.Split('\')[-1] } | Out-File -Encoding ascii SHA256SUMS.txt
-          Compress-Archive -Path sp.exe, README.md, SHA256SUMS.txt -DestinationPath "sp-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip" -Force
+          Compress-Archive -Path sp.exe, sp-nmhost.exe, README.md, native-host, SHA256SUMS.txt -DestinationPath "sp-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip" -Force
           Pop-Location
           Get-ChildItem $out
 
@@ -101,3 +106,24 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           rust-version: "stable"
+
+  extension:
+    # 浏览器扩展构建门禁（SP-F-704/705；fuzz 不进 CI——design_docs/07）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # pnpm 11 要求 ≥22.13
+          cache: pnpm
+          cache-dependency-path: extension/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm lint
+      - run: pnpm test

@@ -50,4 +50,4 @@ Rust（rustup，工具链锁定）｜keepassxc（choco/winget，仅测试）｜�
 
 ## 5. 后续步骤衔接
 
-步骤 2（WSL）：同仓 clone 至 WSL，`cargo test` Linux GNU 目标 + 文件权限 0600 分支测试；CI 增加 ubuntu job。步骤 3（浏览器扩展）：native messaging host 复用 sp-core（设计另立 design_docs/1x）。步骤 4（Android）：UniFFI 绑定 sp-core。
+步骤 2（WSL）：同仓 clone 至 WSL，`cargo test` Linux GNU 目标 + 文件权限 0600 分支测试；CI 增加 ubuntu job（✅ v0.1.2-linux）。步骤 3（浏览器扩展）：native messaging host 复用 sp-core，设计见 design_docs/10/11/12（含 DR-006 会话与协议决策）。步骤 4（Android）：UniFFI 绑定 sp-core。
