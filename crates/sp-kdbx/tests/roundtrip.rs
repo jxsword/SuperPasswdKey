@@ -16,12 +16,28 @@ use keepass_ng::{Argon2Version, DatabaseConfig, DatabaseKey, KdfConfig};
 /// 降低参数保测试速度（产品默认参数策略见 sp-core::keypolicy；memory 单位=字节）
 const TEST_KDF_MEMORY_BYTES: u64 = 16 * 1024 * 1024;
 
+/// keepassxc-cli 定位：`SP_KEEPASSXC_CLI` 环境变量覆盖 → 平台默认路径
+/// （Windows: Program Files 安装位置；Linux: apt 安装位置 /usr/bin）
+fn keepassxc_cli_path() -> String {
+    if let Ok(p) = std::env::var("SP_KEEPASSXC_CLI") {
+        if !p.is_empty() {
+            return p;
+        }
+    }
+    if cfg!(windows) {
+        r"C:\Program Files\KeePassXC\keepassxc-cli.exe".to_string()
+    } else {
+        "/usr/bin/keepassxc-cli".to_string()
+    }
+}
+
 fn kxc(args: &[&str]) -> String {
+    let kxc_path = keepassxc_cli_path();
     assert!(
-        std::path::Path::new(r"C:\Program Files\KeePassXC\keepassxc-cli.exe").is_file(),
-        "keepassxc-cli not found (install KeePassXC >= 2.7)"
+        std::path::Path::new(&kxc_path).is_file(),
+        "keepassxc-cli not found at {kxc_path} (install KeePassXC >= 2.7 or set SP_KEEPASSXC_CLI)"
     );
-    let mut cmd = Command::new(r"C:\Program Files\KeePassXC\keepassxc-cli.exe");
+    let mut cmd = Command::new(&kxc_path);
     // 测试库均为 keyfile-only：跳过密码提示（Windows CLI 无管道密码输入能力）
     // 注意：全局选项必须放在子命令之后（clap 语义）
     let mut full_args: Vec<String> = vec![args[0].to_string(), "--no-password".to_string()];
