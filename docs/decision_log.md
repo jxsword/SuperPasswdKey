@@ -47,3 +47,11 @@
 - 理由: 唯一在"红线 #5 主密码不出进程"与浏览器场景可用性间自洽；适配器策略按用户要求兼顾进度与后续升级 P2 的路径
 - 影响: crates/sp-nmhost、extension/、native-host/ 注册脚本、design_docs/10/11/12、SRS V1.1（SP-F-7xx）、追溯矩阵；v0.2 backlog 项调整见 SRS §10
 - 记录时间 / 会话: 2026-10-27 / SuperPasswdKey 步骤3 开发会话
+
+## DR-007 2026-10-27 发布签名选型 minisign 原生生成 + 四渠道公钥冗余 [状态: 生效]
+- 背景: 红线 #1 分阶段承诺 v0.2 接入发布物公钥签名（08 §3：Minisign）。单人 Windows 项目、发布低频。
+- 选项与权衡: 生成方式——minisign 原生(Ed25519+口令加密私钥，Windows 预编译可得，选定); OpenBSD signify(同格式系但 Windows 无官方二进制，弃用); 复用 SSH ed25519(签名密钥与高频 SSH 密钥耦合、攻击面大，弃用); YubiKey/HSM(minisign 不原生支持 PIV、单人项目成本收益比低，列为后续升级项)。分发渠道——仓库提交+Release 资产为基线（与代码同生共死、可被账号接管连带替换），独立 HTTPS 页(GitHub Pages)=唯一异源强冗余，Web Archive 快照=第三方时间锚，线下打印/U 盘=自我灾备，四路并用（比对矩阵见 2026-10-27 会话记录；URL 三件套均实测可达）。
+- 结论: 离线主机 `minisign -G` 生成（强口令）；私钥离线保管（加密 U 盘+打印备份，不经 CI/代理/Agent）；公钥 `minisign.pub` 四渠道分发（仓库根提交、Release 资产、GitHub Pages 冻结指纹、Web Archive 快照）；签名动作=**本地脚本** `scripts/sign-release.ps1` 对 CI 产物 SHA256SUMS 签名后随 Release 发布（修正会话中"CI 内签名"表述：私钥不进 runner）；README 提供验签说明。降级声明：防公钥静默替换，不防账号与全部异源渠道被协同接管（超出单人模型，Release 说明如实声明）。
+- 理由: 单验证者信任锚=维护者本人，策略取"多渠道冗余+首发冻结指纹"而非单点强保护；确定性签名与可复现构建叙事对齐。
+- 影响: scripts/sign-release.ps1、README 验签节、Release 流程、channel A/C/D 待密钥生成后执行；后续升级项=HSM/Sigstore。
+- 记录时间 / 会话: 2026-10-27 / SuperPasswdKey 步骤3 开发会话

@@ -36,6 +36,19 @@ Chrome/Edge MV3 扩展经 native messaging 驱动本地 host（`sp-nmhost`）完
 
 威胁边界延伸（如实在声明）：扩展与 host 间为**同用户本机管道**（P1 明文帧，`allowed_origins` 绑定扩展 ID + host 侧 origin 校验双重防线；协议层加密 P2 为预适配位）；同 OS 用户恶意软件的内存读取边界与 CLI 一致。详见 [design_docs/11 §5-6](design_docs/11_native_messaging协议.md)。
 
+## Release verification / 发布验签（v0.2 起）
+
+发布物附 `SHA256SUMS.txt` 与其 minisign 签名 `SHA256SUMS.txt.minisig`（Ed25519，DR-007）：
+
+```bash
+# 1) 校验文件哈希
+sha256sum -c SHA256SUMS.txt          # Windows: Get-FileHash 对比
+# 2) 验证签名（minisign.pub 渠道：本仓库根 / Release 资产 / 维护者 Pages 页 / Web Archive 快照）
+minisign -V -p minisign.pub -m SHA256SUMS.txt
+```
+
+维护者签名流程见 `scripts/sign-release.ps1`（本地离线签名，私钥不经 CI）。公钥指纹以 GitHub Pages 页与 Web Archive 首发快照冻结值为准——若各渠道公钥不一致，以 Pages 页为准并视为安全事故。
+
 ## License
 
 AGPL-3.0-only. See [LICENSE](LICENSE).
