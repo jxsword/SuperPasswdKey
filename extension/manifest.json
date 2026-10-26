@@ -5,6 +5,14 @@
   "description": "SuperPasswdKey browser autofill via native messaging host (local KDBX4 vault)",
   "minimum_chrome_version": "120",
   "permissions": ["nativeMessaging", "alarms"],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+P"
+      },
+      "description": "Open SuperPasswdKey popup"
+    }
+  },
   "background": {
     "service_worker": "service-worker.js"
   },

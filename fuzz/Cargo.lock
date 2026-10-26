@@ -2521,6 +2521,7 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "sp-cli",
+ "sp-nmhost",
 ]
 
 [[package]]
@@ -2532,6 +2533,18 @@ dependencies = [
  "keepass-ng",
  "sp-core",
  "thiserror 2.0.21",
+ "zeroize",
+]
+
+[[package]]
+name = "sp-nmhost"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sp-core",
+ "sp-kdbx",
+ "toml 0.9.12+spec-1.1.0",
  "zeroize",
 ]
 

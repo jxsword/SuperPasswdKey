@@ -1,4 +1,4 @@
-# SuperPasswdKey native messaging host 注册（SP-F-701，design_docs/11 §6）
+﻿# SuperPasswdKey native messaging host 注册（SP-F-701，design_docs/11 §6）
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File register.ps1 `
 #     -HostExe "E:\proj\SuperPasswdKey\target\release\sp-nmhost.exe" `
@@ -14,6 +14,8 @@ param(
     [Parameter(Mandatory = $false)] [string]$ExtensionId,
     [string[]]$Browsers = @("chrome", "edge"),
     [int]$SessionTimeout = 300,
+    [string]$DbPath = "",
+    [string]$KeyfilePath = "",
     [switch]$Unregister
 )
 
@@ -59,23 +61,30 @@ $manifest = [ordered]@{
     allowed_origins = @("chrome-extension://$ExtensionId/")
 }
 New-Item -ItemType Directory -Force -Path $ManifestDir | Out-Null
-$manifest | ConvertTo-Json | Set-Content -Path $ManifestPath -Encoding UTF8
+# 无 BOM UTF-8：Chrome manifest 解析与 Rust serde_json 均拒绝 BOM
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($ManifestPath, ($manifest | ConvertTo-Json), $utf8NoBom)
 Write-Host "manifest written: $ManifestPath"
 
-# host 侧 origin 绑定（第二道防线；Chrome manifest 不支持启动参数，
+# host 侧 origin 绑定 + 库路径（第二道防线与库发现；Chrome manifest 不支持启动参数，
 # host 自行读本文件——design_docs/11 §6）
-$hostConfigPath = Join-Path $ManifestDir "nm-host-config.json"
-[ordered]@{
-    allowed_origin    = "chrome-extension://$ExtensionId/"
+$hostConfig = [ordered]@{
+    allowed_origin       = "chrome-extension://$ExtensionId/"
     session_timeout_secs = $SessionTimeout
-} | ConvertTo-Json | Set-Content -Path $hostConfigPath -Encoding UTF8
+}
+if ($DbPath)     { $hostConfig["db_path"] = (Resolve-Path $DbPath).Path }
+if ($KeyfilePath) { $hostConfig["keyfile_path"] = (Resolve-Path $KeyfilePath).Path }
+$hostConfigPath = Join-Path $ManifestDir "nm-host-config.json"
+[System.IO.File]::WriteAllText($hostConfigPath, ($hostConfig | ConvertTo-Json), $utf8NoBom)
 Write-Host "host config written: $hostConfigPath"
 
 foreach ($b in $Browsers) {
     $dir = $RegistryRoots[$b]
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    if (-not (Test-Path $dir)) {
+        New-Item -Path $dir -ItemType Directory | Out-Null
+    }
     $key = Join-Path $dir $HostName
-    New-Item -ItemType String -Path $key -Value $ManifestPath -Force | Out-Null
+    New-Item -Path $key -Value $ManifestPath -Force | Out-Null
     Write-Host "registered: $b -> $key"
 }
 

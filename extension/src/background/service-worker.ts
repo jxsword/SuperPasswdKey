@@ -31,7 +31,10 @@ function rejectAll(err: Error): void {
 function ensurePort(): chrome.runtime.Port {
   if (port) return port;
   const p = chrome.runtime.connectNative(HOST_NAME);
-  p.onMessage.addListener((resp: HostResponse) => {
+  p.onMessage.addListener((env: HostEnvelope) => {
+    // 响应同样是 {v, codec, payload} 信封（design_docs/11 §2）；校验后解包
+    if (env?.v !== 1 || env?.codec !== "plain") return;
+    const resp = env.payload as unknown as HostResponse;
     const entry = pending.get(resp.requestID);
     if (!entry) return;
     pending.delete(resp.requestID);

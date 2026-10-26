@@ -68,15 +68,25 @@ fn resolve_expected_origin(args: &Args) -> Option<String> {
             return Some(o);
         }
     }
+    host_side_config().as_ref().and_then(|c| {
+        c.get("allowed_origin")
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    })
+}
+
+/// nm-host-config.json（register.ps1 写入，design_docs/11 §6）：
+/// allowed_origin / db_path / keyfile_path / session_timeout_secs。
+/// 库与 keyfile 的优先级：--db/--keyfile > 本文件 > config.toml（与 sp 语义兼容）。
+fn host_side_config() -> Option<serde_json::Value> {
     let cfg_path = std::env::var_os("LOCALAPPDATA")
         .map(std::path::PathBuf::from)
         .map(|p| p.join("SuperPasswdKey").join("nm-host-config.json"))?;
     let raw = std::fs::read_to_string(cfg_path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    v.get("allowed_origin")
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
+    // 兼容带 BOM 的写出工具（Chrome manifest 解析同样不容忍 BOM——register.ps1 已改无 BOM）
+    let raw = raw.trim_start_matches('\u{feff}');
+    serde_json::from_str(raw).ok()
 }
 
 /// origin 双重校验（manifest allowed_origins 之外的 host 侧防线，design_docs/11 §1）
@@ -118,7 +128,7 @@ fn main() -> ExitCode {
         }
     }
 
-    // 库与 keyfile 解析：CLI 参数 > config.toml（与 sp 语义一致）
+    // 库与 keyfile 解析：CLI 参数 > nm-host-config.json > config.toml（design_docs/11 §6）
     let cfg: HostConfig = match config::load() {
         Ok(c) => c,
         Err(e) => {
@@ -126,8 +136,20 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let db_path = args.db.or(cfg.default_db);
-    let keyfile = args.keyfile.or(cfg.keyfile);
+    let host_cfg = host_side_config();
+    let json_path = |key: &str| -> Option<std::path::PathBuf> {
+        host_cfg
+            .as_ref()
+            .and_then(|v| v.get(key))
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(std::path::PathBuf::from)
+    };
+    let db_path = args.db.or_else(|| json_path("db_path")).or(cfg.default_db);
+    let keyfile = args
+        .keyfile
+        .or_else(|| json_path("keyfile_path"))
+        .or(cfg.keyfile);
     if db_path.is_none() {
         eprintln!("sp-nmhost: no database configured (--db or config.toml default_db)");
         return ExitCode::from(1);
