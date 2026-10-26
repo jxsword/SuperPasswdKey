@@ -10,10 +10,18 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 sp-cli = { path = "../crates/sp-cli" }
+sp-nmhost = { path = "../crates/sp-nmhost" }
 
 [[bin]]
 name = "env_parser"
 path = "fuzz_targets/env_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nm_protocol"
+path = "fuzz_targets/nm_protocol.rs"
 test = false
 doc = false
 bench = false

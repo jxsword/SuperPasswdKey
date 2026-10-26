@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "SuperPasswdKey",
+  "version": "0.2.0",
+  "description": "SuperPasswdKey browser autofill via native messaging host (local KDBX4 vault)",
+  "minimum_chrome_version": "120",
+  "permissions": ["nativeMessaging", "alarms"],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SuperPasswdKey"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

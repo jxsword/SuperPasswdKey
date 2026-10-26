@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>SuperPasswdKey 登录填充演示</title>
+  <style>
+    body { font: 14px/1.6 system-ui, sans-serif; max-width: 420px; margin: 40px auto; }
+    form { border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; }
+    label { display: block; margin-top: 12px; }
+    input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 4px; }
+    button { margin-top: 16px; padding: 8px 16px; background: #2563eb; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+    #result { margin-top: 16px; padding: 12px; border-radius: 6px; background: #f1f5f9; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>演示登录页（本页不提交任何数据）</h1>
+  <p>供 Chrome 手工验收（B4 基线）：扩展 popup → 解锁 → 填充。</p>
+  <form id="login" onsubmit="return onSubmit(event)">
+    <label>用户名 <input id="username" name="username" type="text" autocomplete="username" /></label>
+    <label>密码 <input id="password" name="password" type="password" autocomplete="current-password" /></label>
+    <button type="submit">登录</button>
+  </form>
+  <div id="result">等待提交…</div>
+  <script>
+    // 验收辅助：只显示“字段是否被填充”，不回显机密值
+    function onSubmit(e) {
+      e.preventDefault();
+      const u = document.getElementById("username").value;
+      const p = document.getElementById("password").value;
+      document.getElementById("result").textContent =
+        `username: ${u ? `已填充(${u.length} 字符)` : "为空"}\n` +
+        `password: ${p ? `已填充(${p.length} 字符)` : "为空"}`;
+      return false;
+    }
+  </script>
+</body>
+</html>
