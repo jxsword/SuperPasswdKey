@@ -477,11 +477,16 @@ fn unlock_db(
 }
 
 /// sp run（SP-F-301）：引用解析 → 进程级注入 → 遮蔽转发 → 退出码透传
+///
+/// stdin_mode=true（--stdin，POSIX 增强项，design_docs/04 §4.1）：机密不进
+/// 子进程环境，改写 NUL 分隔记录 `KEY=VALUE\0` 到子进程 stdin（gopass 语义，
+/// 规避 /proc/<pid>/environ 读取面）。
 pub fn run(
     cli_db: Option<&Path>,
     cli_keyfile: Option<&Path>,
     env_file: Option<PathBuf>,
     no_masking: bool,
+    stdin_mode: bool,
     cmd: Vec<String>,
 ) -> Result<i32, SpError> {
     if cmd.is_empty() {
@@ -510,8 +515,28 @@ pub fn run(
     drop(db); // 尽早释放库明文（09§4 残留缓解）
 
     let secret_values: Vec<Zeroizing<String>> = env_map.iter().map(|(_, v)| v.clone()).collect();
-    let mut child = crate::spawner::spawn_child(&cmd[0], &cmd[1..], &env_map, !no_masking)
+    // --stdin 模式：不向子进程环境注入任何机密（仅继承父进程环境）
+    let envs: &[(String, Zeroizing<String>)] = if stdin_mode { &[] } else { &env_map };
+    let mut child = crate::spawner::spawn_child(&cmd[0], &cmd[1..], envs, !no_masking, stdin_mode)
         .map_err(|e| SpError::Io(format!("spawn {}: {e}", cmd[0])))?;
+
+    let t_stdin = if stdin_mode {
+        let mut stdin = child.stdin.take().expect("piped stdin");
+        let records = env_map.clone();
+        Some(std::thread::spawn(move || {
+            use std::io::Write;
+            for (k, v) in &records {
+                let _ = stdin.write_all(k.as_bytes());
+                let _ = stdin.write_all(b"=");
+                let _ = stdin.write_all(v.as_str().as_bytes());
+                let _ = stdin.write_all(b"\0");
+            }
+            let _ = stdin.flush();
+            // stdin 在此 drop：关闭管道即向子进程传递输入结束信号
+        }))
+    } else {
+        None
+    };
 
     if !no_masking {
         let mut masker_out = Masker::new(secret_values.clone());
@@ -557,6 +582,10 @@ pub fn run(
     let status = child
         .wait()
         .map_err(|e| SpError::Io(format!("wait child: {e}")))?;
+    // stdin 写入线程在 wait 后 join：子进程不读 stdin 时线程阻塞至管道关闭
+    if let Some(t_stdin) = t_stdin {
+        let _ = t_stdin.join();
+    }
     // env_map 随作用域销毁清零（SP-N-305）
     Ok(status.code().unwrap_or(1))
 }
