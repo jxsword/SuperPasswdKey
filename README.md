@@ -47,6 +47,15 @@ sp read demo/Password -n --out-file out.txt
 # 剪贴板（默认 30s 自动清除；Win+V 历史不受控）
 sp clip demo/Password
 
+# F8 临时环境变量注入（引用文件可安全入版本库；值不落盘、进程退出即销毁）
+cat > prod.env << 'EOF'
+DB_PASSWORD=sp://demo/Password
+API_KEY=sp://demo/env
+EOF
+sp run --env-file prod.env -- your-command args     # 输出自动遮蔽
+sp run --no-masking --env-file prod.env -- printenv DB_PASSWORD
+sp inject -i config.tpl -o config.yml               # {{ sp://... }} 渲染，产物限当前用户
+
 # 批量导入（F9：dotenv / csv / bw-json / env 快照 / files 扫描）
 sp import dotenv ./secrets.env --dry-run
 sp import files D:\projects

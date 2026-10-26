@@ -335,6 +335,10 @@ pub fn item_delete(
 // ---------- read / clip ----------
 
 /// 解析引用 URI（SP-F-202）："sp://<title>/<field>" 或 "<title>/<field>"；段不可省略
+pub(crate) fn parse_uri_public(uri: &str) -> Result<(String, String), SpError> {
+    parse_uri(uri)
+}
+
 fn parse_uri(uri: &str) -> Result<(String, String), SpError> {
     let body = uri.strip_prefix("sp://").unwrap_or(uri);
     let (title, field) = body
@@ -409,6 +413,10 @@ pub fn read(
 }
 
 /// --out-file 权限：Windows ACL 限当前用户（复审 R2 修正：无 POSIX 0600 语义）
+pub(crate) fn restrict_perms_public(path: &Path) -> Result<(), SpError> {
+    restrict_perms(path)
+}
+
 fn restrict_perms(path: &Path) -> Result<(), SpError> {
     #[cfg(windows)]
     {

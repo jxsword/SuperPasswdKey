@@ -4,7 +4,7 @@
 //!
 //! 注：run/inject 编排依赖 spawner.rs（待用户落盘），届时移除本模块 dead_code 标注。
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 
 use zeroize::Zeroizing;
@@ -396,4 +396,213 @@ mod proptests {
             prop_assert_eq!(out.matches("<redacted>").count(), 2);
         }
     }
+}
+
+// ---------- sp run / sp inject 编排（进程生成点：crate::spawner） ----------
+
+use std::path::PathBuf;
+
+use crate::commands;
+
+fn resolve_field(
+    db: &sp_kdbx::engine::db::Database,
+    title: &str,
+    field: &str,
+) -> Result<String, SpError> {
+    let m = sp_kdbx::find_entry(db, title)?;
+    match field {
+        "Title" => Ok(m.title),
+        "UserName" => m
+            .username
+            .ok_or_else(|| SpError::NotFound(format!("{title}/UserName"))),
+        "Password" => m
+            .password
+            .as_ref()
+            .map(|p| p.as_str().to_string())
+            .ok_or_else(|| SpError::NotFound(format!("{title}/Password"))),
+        "URL" => m
+            .url
+            .ok_or_else(|| SpError::NotFound(format!("{title}/URL"))),
+        "Notes" => m
+            .notes
+            .ok_or_else(|| SpError::NotFound(format!("{title}/Notes"))),
+        "totp" | "TOTP" => sp_kdbx::entry_totp_now(db, title),
+        f => m
+            .custom_fields
+            .iter()
+            .find(|c| c.name == f)
+            .map(|c| c.value.as_str().to_string())
+            .ok_or_else(|| SpError::NotFound(format!("{title}/{f}"))),
+    }
+}
+
+fn unlock_db(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+) -> Result<sp_kdbx::engine::db::Database, SpError> {
+    let cfg = crate::config::load()?;
+    let db_path = cli_db
+        .map(PathBuf::from)
+        .or_else(|| cfg.default_db.clone())
+        .ok_or_else(|| SpError::Config("no database configured (run sp init)".into()))?;
+    let keyfile = cli_keyfile
+        .map(PathBuf::from)
+        .or_else(|| cfg.keyfile.clone());
+    let password =
+        commands::read_secret(&format!("Enter password to unlock {}: ", db_path.display()))?;
+    let factors = sp_core::CredentialFactors {
+        password,
+        keyfile_path: keyfile,
+    };
+    let db = match sp_kdbx::open_db(&db_path, &factors) {
+        Ok(d) => d,
+        Err(e) => {
+            if let Some(_h) =
+                crate::integrity::detect_external_change(&db_path, &cfg.baseline_sha256)
+            {
+                eprintln!("WARNING: database may have been externally modified.");
+            }
+            return Err(e);
+        }
+    };
+    // 打开成功 → 静默更新基线（SP-N-311）
+    if let Ok(h) = crate::integrity::sha256_file(&db_path) {
+        if cfg.baseline_sha256.as_deref() != Some(h.as_str()) {
+            let mut c = cfg.clone();
+            c.baseline_sha256 = Some(h);
+            let _ = crate::config::save(&c);
+        }
+    }
+    Ok(db)
+}
+
+/// sp run（SP-F-301）：引用解析 → 进程级注入 → 遮蔽转发 → 退出码透传
+pub fn run(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    env_file: Option<PathBuf>,
+    no_masking: bool,
+    cmd: Vec<String>,
+) -> Result<i32, SpError> {
+    if cmd.is_empty() {
+        return Err(SpError::Parameter("no command given after --".into()));
+    }
+    let entries = match &env_file {
+        Some(p) => parse_env_file(p)?,
+        None => Vec::new(),
+    };
+    let db = unlock_db(cli_db, cli_keyfile)?;
+
+    let mut env_map: Vec<(String, Zeroizing<String>)> = Vec::new();
+    for (key, value) in entries.iter() {
+        let resolved: Zeroizing<String> = if let Some(uri) = value.strip_prefix("sp://") {
+            let (title, field) = commands::parse_uri_public(uri)?;
+            Zeroizing::new(resolve_field(&db, &title, &field)?)
+        } else {
+            Zeroizing::new(value.clone())
+        };
+        if is_protected(key) {
+            eprintln!("sp: refusing to set protected variable '{key}' (SP-F-301)");
+            continue;
+        }
+        env_map.push((posix_name(key), resolved));
+    }
+    drop(db); // 尽早释放库明文（09§4 残留缓解）
+
+    let secret_values: Vec<Zeroizing<String>> = env_map.iter().map(|(_, v)| v.clone()).collect();
+    let mut child = crate::spawner::spawn_child(&cmd[0], &cmd[1..], &env_map, !no_masking)
+        .map_err(|e| SpError::Io(format!("spawn {}: {e}", cmd[0])))?;
+
+    if !no_masking {
+        let mut masker_out = Masker::new(secret_values.clone());
+        let mut masker_err = Masker::new(secret_values.clone());
+        let mut stdout = child.stdout.take().expect("piped stdout");
+        let mut stderr = child.stderr.take().expect("piped stderr");
+        let t_out = std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            let mut out = std::io::stdout().lock();
+            loop {
+                match stdout.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if masker_out.filter_chunk(&buf[..n], &mut out).is_err() {
+                            break;
+                        }
+                        let _ = out.flush();
+                    }
+                }
+            }
+            let _ = masker_out.finish(&mut out);
+        });
+        let t_err = std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            let mut out = std::io::stderr().lock();
+            loop {
+                match stderr.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if masker_err.filter_chunk(&buf[..n], &mut out).is_err() {
+                            break;
+                        }
+                        let _ = out.flush();
+                    }
+                }
+            }
+            let _ = masker_err.finish(&mut out);
+        });
+        let _ = t_out.join();
+        let _ = t_err.join();
+    }
+
+    let status = child
+        .wait()
+        .map_err(|e| SpError::Io(format!("wait child: {e}")))?;
+    // env_map 随作用域销毁清零（SP-N-305）
+    Ok(status.code().unwrap_or(1))
+}
+
+/// sp inject（SP-F-302）：{{ sp://... }} 模板渲染
+pub fn inject(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    template: PathBuf,
+    output: Option<PathBuf>,
+    stdout_mode: bool,
+) -> Result<(), SpError> {
+    let tpl = std::fs::read_to_string(&template)
+        .map_err(|e| SpError::Io(format!("read template: {e}")))?;
+    let db = unlock_db(cli_db, cli_keyfile)?;
+
+    let mut rendered = String::with_capacity(tpl.len());
+    let mut rest = tpl.as_str();
+    while let Some(start) = rest.find("{{ sp://") {
+        rendered.push_str(&rest[..start]);
+        let after = &rest[start + "{{ sp://".len()..];
+        let Some(end) = after.find("}}") else {
+            return Err(SpError::Parameter(format!(
+                "unclosed placeholder near offset {start}"
+            )));
+        };
+        let uri = after[..end].trim();
+        let (title, field) = commands::parse_uri_public(uri)?;
+        rendered.push_str(&resolve_field(&db, &title, &field)?);
+        rest = &after[end + 2..];
+    }
+    rendered.push_str(rest);
+    drop(db);
+
+    match (stdout_mode, output) {
+        (true, _) => print!("{rendered}"),
+        (false, Some(path)) => {
+            std::fs::write(&path, rendered.as_bytes())
+                .map_err(|e| SpError::Io(format!("write output: {e}")))?;
+            commands::restrict_perms_public(&path)?;
+            eprintln!(
+                "Written to {} — contains SECRETS in cleartext; delete after use.",
+                path.display()
+            );
+        }
+        (false, None) => return Err(SpError::Parameter("specify -o <file> or --stdout".into())),
+    }
+    Ok(())
 }

@@ -8,6 +8,7 @@ mod export;
 mod f8;
 mod importer;
 mod integrity;
+mod spawner;
 
 use std::path::PathBuf;
 
@@ -53,6 +54,30 @@ enum Command {
         /// Write to file (ACL restricted to current user)
         #[arg(long)]
         out_file: Option<PathBuf>,
+    },
+    /// Run a command with secrets injected as env vars (F8, SP-F-301)
+    Run {
+        /// .env file with sp:// references
+        #[arg(long)]
+        env_file: Option<PathBuf>,
+        /// Disable output redaction (debug only)
+        #[arg(long)]
+        no_masking: bool,
+        /// Command and args after --
+        #[arg(last = true, required = true)]
+        cmd: Vec<String>,
+    },
+    /// Render a template with secrets (F8, SP-F-302)
+    Inject {
+        /// Template file with {{ sp://title/field }} placeholders
+        #[arg(short = 'i', long)]
+        input: PathBuf,
+        /// Output file (ACL restricted; contains plaintext!)
+        #[arg(short = 'o', long)]
+        output: Option<PathBuf>,
+        /// Stream rendered output to stdout instead of a file
+        #[arg(long)]
+        stdout: bool,
     },
     /// Copy a value to clipboard with timeout clear (SP-F-203)
     Clip {
@@ -186,6 +211,19 @@ fn run(cli: Cli) -> Result<(), SpError> {
             out_file,
         } => commands::read(db, keyfile, uri, no_newline, out_file),
         Command::Clip { uri, timeout } => commands::clip(db, keyfile, uri, timeout),
+        Command::Run {
+            env_file,
+            no_masking,
+            cmd,
+        } => {
+            let code = f8::run(db, keyfile, env_file, no_masking, cmd)?;
+            std::process::exit(code);
+        }
+        Command::Inject {
+            input,
+            output,
+            stdout,
+        } => f8::inject(db, keyfile, input, output, stdout),
         Command::Import { kind, dry_run } => match kind {
             ImportKind::Dotenv { path } => commands::import(commands::ImportOptions {
                 cli_db: cli.db.clone(),
