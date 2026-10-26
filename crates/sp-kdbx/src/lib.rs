@@ -182,13 +182,41 @@ pub fn list_titles(db: &Database) -> Vec<String> {
         .entries()
         .iter()
         .filter_map(|n| {
-            n.borrow()
-                .downcast_ref::<Entry>()
-                .and_then(|e| e.get_title().map(str::to_string))
+            let e = n.borrow();
+            let e = e.downcast_ref::<Entry>()?;
+            Some(e.get_title().unwrap_or_default().to_string())
         })
         .collect();
     v.sort();
     v
+}
+
+/// 浏览器扩展 get-logins 响应面（SP-F-706，design_docs/12 §3）：
+/// 不含密码的条目摘要；密码/TOTP 仅经 find_entry/entry_totp_now 单条显式取回。
+#[derive(Debug, Clone)]
+pub struct EntrySummary {
+    pub title: String,
+    pub username: Option<String>,
+    pub url: Option<String>,
+    pub has_otp: bool,
+}
+
+pub fn list_entry_summaries(db: &Database) -> Vec<EntrySummary> {
+    let root = db.root.borrow();
+    let g = root.downcast_ref::<Group>().expect("root is a group");
+    g.entries()
+        .iter()
+        .filter_map(|n| {
+            let e = n.borrow();
+            let e = e.downcast_ref::<Entry>()?;
+            Some(EntrySummary {
+                title: e.get_title().unwrap_or_default().to_string(),
+                username: e.get_username().map(str::to_string),
+                url: e.get_url().map(str::to_string),
+                has_otp: e.get_raw_otp_value().is_some(),
+            })
+        })
+        .collect()
 }
 
 /// 编辑：旧快照推入 history（SP-F-103，update_history 内建），再应用新模型

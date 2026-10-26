@@ -63,7 +63,7 @@
 
 ## 6. 注册与发现（Windows）
 
-- manifest 文件（JSON）：`name=com.superpasswdkey.host`、`type=stdio`、`path=sp-nmhost.exe 绝对路径`、`allowed_origins=["chrome-extension://<扩展ID>/"]`（无通配）。
+- manifest 文件（JSON）：`name=com.superpasswdkey.host`、`type=stdio`、`path=sp-nmhost.exe 绝对路径`、`allowed_origins=["chrome-extension://<扩展ID>/"]`（无通配）。**Chrome manifest 不支持启动参数**，host 侧 origin 绑定（第二道防线）由 `register.ps1` 同步写 `%LOCALAPPDATA%\SuperPasswdKey\nm-host-config.json`（`allowed_origin`），host 启动时读取（`--allowed-origin` 参数与 `SP_NM_ALLOWED_ORIGIN` 环境变量可覆盖；均未配置则 stderr 告警后放行，仅剩 manifest 一道防线——开发模式）。
 - 注册（HKCU，免管理员）：`HKCU\Software\Google\Chrome\NativeMessagingHosts\com.superpasswdkey.host`（默认值 = manifest 路径）；Edge：`HKCU\Software\Microsoft\Edge\NativeMessagingHosts\...` 同构。
 - `native-host/register.ps1`：参数 `-HostExe`（sp-nmhost.exe 路径）、`-ExtensionId`；生成 manifest 到 `%LOCALAPPDATA%\SuperPasswdKey\nm-host-manifest.json` 并写注册表（Chrome+Edge）；`unregister.ps1` 注销删除。unpacked 扩展 ID = SHA-256(加载目录绝对路径) 前 32 hex 经 a–p 映射（Chrome 规则），脚本不代算，由加载后 `chrome://extensions` 读取（操作手册见 docs/reviews/ 手工清单）。
 
