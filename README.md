@@ -47,7 +47,7 @@ sha256sum -c SHA256SUMS.txt          # Windows: Get-FileHash 对比
 minisign -V -p minisign.pub -m SHA256SUMS.txt
 ```
 
-维护者签名流程见 `scripts/sign-release.ps1`（本地离线签名，私钥不经 CI）。公钥指纹以 GitHub Pages 页与 Web Archive 首发快照冻结值为准——若各渠道公钥不一致，以 Pages 页为准并视为安全事故。
+维护者签名流程见 `scripts/sign-release.ps1`（本地离线签名，私钥不经 CI）。**本仓库签名公钥 minisign.pub 指纹（key ID）：`52113F262DA49B62`**——公钥四渠道分发（本仓库根 / Release 资产 / [jxsword.github.io](https://jxsword.github.io/) / Web Archive 首发快照），若各渠道公钥不一致，以 Pages 页为准并视为安全事故。
 
 ## License
 
