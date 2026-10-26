@@ -89,7 +89,6 @@ foreach ($b in $Browsers) {
 }
 
 Write-Host ""
-Write-Host "host launch args are appended by design (session timeout ${SessionTimeout}s):"
-Write-Host "  sp-nmhost --allowed-origin chrome-extension://$ExtensionId/ --session-timeout $SessionTimeout"
-Write-Host "NOTE: this script writes the manifest 'path' only; pass --session-timeout via config if non-default."
+Write-Host "Done. Host config (origin/session timeout/db path) written to nm-host-config.json;"
+Write-Host "sp-nmhost reads it at startup (design_docs/11 section 6)."
 Write-Host "Verify in chrome://extensions that the extension ID matches -ExtensionId."

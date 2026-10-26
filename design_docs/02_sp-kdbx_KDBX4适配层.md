@@ -1,6 +1,6 @@
 # 02 sp-kdbx KDBX4 适配层
 
-- 状态：v1.0｜追溯：SP-F-101/102/103/104/107、SP-N-308｜OOP：PlantUML（SVG 已渲染）
+- 状态：v1.1（2026-10-27，v1.1 变更=新增 §2.1 浏览器扩展摘要 API）｜追溯：SP-F-101/102/103/104/107、SP-F-702/706、SP-N-308｜OOP：PlantUML（SVG 已渲染）
 
 ## 1. 适配器设计（DR-005 回退策略的落点）
 
@@ -42,6 +42,10 @@ note right of KdbxAdapter : 回退实现 KeepassRsAdapter\n（DR-005 备选）�
 | 附件 | KDBX4 binaries（格式层加密）+ Entry binary 引用 | 1MB 基准 |
 | 删除 | 移入 KDBX 回收站组 | SP-F-102 |
 | 库级元数据 | Meta（生成器名 "SuperPasswdKey vX"） | SP-F-205 追溯 |
+
+### 2.1 公开 API 增补（v0.2.0-ext，步骤 3）
+
+`list_entry_summaries(db) -> Vec<EntrySummary>`（SP-F-702/706）：`EntrySummary { title, username, url, has_otp }`——**不含密码**的条目摘要，供 sp-nmhost 的 `sp.get-logins` 响应面使用；密码/TOTP 仍仅经 `find_entry` / `entry_totp_now` 单条显式取回（design_docs/10 §4 机密面约束）。与 `list_titles` 同层级（单组遍历实现），不改变既有 API 语义。
 
 ## 3. round-trip 对拍（集成测试，即持久测试资产——冲刺复审修正 3）
 

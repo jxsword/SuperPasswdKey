@@ -4,7 +4,7 @@ Local-first, zero-knowledge password/secret manager CLI with KDBX4 interoperabil
 
 本地优先、零知识的密码/机密管理器 CLI，KDBX4 全兼容。
 
-> Status: v0.1.0-mvp（CLI 全功能内核；F8 run/inject 编排接线、浏览器扩展、服务器轨见 [docs/SRS.md](docs/SRS.md) §10 路线）
+> Status: v0.2.0-ext（CLI 全功能内核 + 浏览器扩展 F1：native messaging host + 本填充引擎；服务器轨见 [docs/SRS.md](docs/SRS.md) §10 路线）
 
 ## Security model / 安全模型（务必阅读）
 
@@ -19,9 +19,22 @@ Local-first, zero-knowledge password/secret manager CLI with KDBX4 interoperabil
 
 ## Development / 开发
 
-- Requirements: Rust 1.99.1 (via `rust-toolchain.toml`), KeePassXC ≥2.7 (tests only).
+- Requirements: Rust 1.99.1 (via `rust-toolchain.toml`), Node 22 + pnpm 11 (extension only), KeePassXC ≥2.7 (tests only).
 - Build: `cargo build --release` ｜ Test: `cargo test` ｜ Lint: `cargo clippy -- -D warnings`
-- Design docs: [design_docs/](design_docs/) (architecture, crypto scheme `09`, tests `07`, git flow `08`)
+- Extension: `cd extension && pnpm install && pnpm build` ｜ Design docs: [design_docs/](design_docs/) (architecture, crypto scheme `09`, extension `10`-`12`, tests `07`, git flow `08`)
+
+## Browser extension / 浏览器扩展（v0.2.0-ext）
+
+Chrome/Edge MV3 扩展经 native messaging 驱动本地 host（`sp-nmhost`）完成解锁与填充；加密解密全部本地，扩展端不落任何存储。
+
+1. 构建 host：`cargo build --release -p sp-nmhost`
+2. 加载扩展：chrome://extensions → 开发者模式 → 加载 `extension/dist`（或解压发布包内 `extension/` 构建产物）
+3. 注册 host（免管理员，HKCU）：
+   `powershell -ExecutionPolicy Bypass -File native-host/register.ps1 -HostExe <sp-nmhost.exe> -ExtensionId <chrome://extensions 显示的 32 位 ID> -DbPath <你的 .kdbx>`
+4. popup 输入主密码解锁后即可在登录页一键填充（URL 匹配规则与协议见 [design_docs/11](design_docs/11_native_messaging协议.md) / [12](design_docs/12_填充引擎与表单匹配.md)）
+5. 注销：`native-host/unregister.ps1`
+
+威胁边界延伸（如实在声明）：扩展与 host 间为**同用户本机管道**（P1 明文帧，`allowed_origins` 绑定扩展 ID + host 侧 origin 校验双重防线；协议层加密 P2 为预适配位）；同 OS 用户恶意软件的内存读取边界与 CLI 一致。详见 [design_docs/11 §5-6](design_docs/11_native_messaging协议.md)。
 
 ## License
 
