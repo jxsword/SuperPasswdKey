@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>SuperPasswdKey</title>
+  <style>
+    body { width: 320px; margin: 0; font: 13px/1.5 system-ui, sans-serif; }
+    header { padding: 8px 12px; background: #1e293b; color: #fff; display: flex; justify-content: space-between; align-items: center; }
+    header b { font-size: 13px; }
+    #lockBtn { background: transparent; border: 1px solid #64748b; color: #cbd5e1; border-radius: 4px; cursor: pointer; }
+    main { padding: 10px 12px; }
+    .status { margin-bottom: 8px; color: #475569; }
+    .error { color: #b91c1c; }
+    input[type="password"], input[type="text"], input[type="search"] {
+      width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 8px;
+    }
+    button.primary { width: 100%; padding: 6px; background: #2563eb; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+    .item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #e2e8f0; gap: 8px; }
+    .item .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item .title { font-weight: 600; }
+    .item .user { color: #64748b; font-size: 12px; }
+    .fill { flex: none; padding: 4px 10px; background: #16a34a; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+    .hint { color: #94a3b8; font-size: 12px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <b>SuperPasswdKey</b>
+    <button id="lockBtn" title="锁定库" hidden>锁定</button>
+  </header>
+  <main>
+    <div id="status" class="status">连接中…</div>
+    <section id="unlockSection" hidden>
+      <input type="password" id="masterPassword" placeholder="主密码" autocomplete="off" />
+      <button id="unlockBtn" class="primary">解锁</button>
+      <div id="unlockError" class="error"></div>
+    </section>
+    <section id="listSection" hidden>
+      <input type="search" id="search" placeholder="搜索条目…" autocomplete="off" />
+      <div id="matchList"></div>
+      <div class="hint">填充 = 用户名 + 密码（条目含 TOTP 且页面有一步验证输入框时一并填充）</div>
+    </section>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

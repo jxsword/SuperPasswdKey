@@ -1,9 +1,9 @@
 # SuperPasswdKey 软件需求规格说明书（SRS）
 
-- 版本：**V1.0（定稿 2026-10-26，三轮审核通过，见 docs/reviews/srs_review.md）**
+- 版本：**V1.1（2026-10-27，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 浏览器扩展升级为正式需求 SP-F-7xx，DR-006）**
 - 开发模型：瀑布（三轮审核：完整性→一致性→可执行性，记录见 `docs/reviews/srs_review.md`）
 - 需求来源：《docs/research/自研需求基线_SuperPasswdKey.md》（B1–B22）、决策记录 DR-001~005、2 天冲刺计划两轮复审修正
-- 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
+- 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
 - 追溯：需求 ↔ 设计 ↔ 测试见 `docs/requirements_traceability_matrix.md`
 - 载体：本文档随代码入仓；范围 = 步骤 1（Windows CLI 全功能），后续步骤见 §10
 
@@ -41,7 +41,10 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 依赖策略：全部成熟 crate（keepass_ng、RustCrypto、clap、arboard）；不自造算法。
 
 ### 2.3 v0.1 边界（非目标）
-浏览器自动填充（F1，步骤 3）、私有部署服务器（F6，后置）、Android/iOS、多库（B19）、1pux 解析、跨进程会话缓存、Shell Plugins（B8）、Watchtower（B10）、passkey 管理（B11）、共享（B15）、密码健康检查（B22）、生物识别解锁（B13）、应急包 PDF（B18）。以上仅做接口预留（§8）。
+
+> V1.1 变更：浏览器自动填充（F1）已升级为正式需求（§3.7，SP-F-7xx），自本节非目标移除。
+
+私有部署服务器（F6，后置）、Android/iOS、多库（B19）、1pux 解析、跨进程会话缓存（注：native messaging host 进程内会话缓存不属"跨进程持久化"，见 DR-006）、Shell Plugins（B8）、Watchtower（B10）、passkey 管理（B11）、共享（B15）、密码健康检查（B22）、生物识别解锁（B13）、应急包 PDF（B18）。以上仅做接口预留（§8）。
 
 ## 3. 功能需求
 
@@ -153,6 +156,38 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 描述：条目 `otp` 自定义属性（KeePass 约定：seed + period/digits 编码）；`sp item get <条目> --totp` 本地 RFC 6238 生成（6 位/30s 默认，尊重属性配置）。
 - 验收：与 RFC 6238 官方测试向量一致；与 KeePassXC 显示的当前码一致（round-trip 对拍）。
 
+### 3.7 浏览器扩展（SP-F-7xx，V1.1 新增，来源 B4 + DR-006）
+
+> 设计见 design_docs/10/11/12；F1 从 §2.3 非目标升级为正式需求（步骤 3）。范围：Chrome（MV3）单页登录表单填充；iframe/SPA/自动保存/Firefox 列 backlog。
+
+**SP-F-701 native messaging host（P0，B4+DR-006，confirmed）**
+- 描述：`sp-nmhost` 长驻 host 进程（Rust，复用 sp-core/sp-kdbx）；Windows 注册表（HKCU）注册/注销脚本；manifest `allowed_origins` 绑定扩展 ID（无通配），host 启动时校验调用方 origin 双重防线。
+- 验收：origin 不符时 host 拒绝服务退出；注册/注销脚本在 Chrome 与 Edge 均生效（HKCU 键与 manifest 文件落位正确）。
+
+**SP-F-702 协议（P0，B4+DR-006，confirmed）**
+- 描述：stdin/stdout 长度前缀 JSON（32 位本机字节序长度 + UTF-8 JSON）；消息信封含 `v`/`codec`/`payload`，codec 为 P1（明文）/P2（TweetNaCl box）适配器切换点（MVP 实现 P1）；动作集：sp.ping/status/unlock/lock/get-logins/get-secret + sp.event；host 不提供任何"导出全库/全字段枚举"能力。
+- 验收：帧编解码 round-trip 与边界（超长断开/非法输入不 panic，fuzz 覆盖）；未知 action 与未知版本拒绝；主密码仅 unlock 消息传输一次。
+
+**SP-F-703 会话状态机（P0，B4+DR-006，confirmed）**
+- 描述：host 解锁一次缓存凭据因子（zeroize），每请求重开库解密（每请求含 KDF ~700ms，如实声明）；空闲超时（默认 300s，可配）自动锁库并通知扩展；MV3 service worker 生命周期以保活策略消化（Chrome ≥120 语义，断线即会话失效）。
+- 验收：空闲超时锁库（可注入时钟测试）；锁后机密操作返回 `locked`；进程退出凭据清零（代码审查 + zeroize 语义）。
+
+**SP-F-704 表单探测与填充（P0，B4，confirmed）**
+- 描述：content script 单页登录表单探测（密码字段 + 用户名启发式 + autocomplete 信号）；填充经原生 setter + input/change 事件（受控组件兼容）；TOTP 可选填充（`autocomplete=one-time-code`）。
+- 验收：本地 demo 页真实登录填充成功（Chrome 实测清单签字，B4 出口）；探测规则 vitest 全分支覆盖。
+
+**SP-F-705 popup 列表与搜索（P0，B4，confirmed）**
+- 描述：popup 显示当前页匹配条目（title/username），本地搜索过滤；解锁/锁定状态条。
+- 验收：解锁→列表→填充主链路手工清单通过；无匹配页显示空列表不猜测。
+
+**SP-F-706 URL 匹配引擎（P0，B4，confirmed）**
+- 描述：host 侧纯函数：scheme 白名单（http/https）、host 归一（含端口）、精确 host 匹配 > base domain 匹配（末两段对齐，防子串误配）、评分降序输出。
+- 验收：Rust 单测覆盖全部正例与反例（含 `evilexample.com` 类子串误配拒绝）。
+
+**SP-F-707 扩展端机密边界（P0，红线延伸，confirmed）**
+- 描述：扩展端机密只进内存即用即弃；不进 chrome.storage/localStorage/临时文件/日志；content script 填充后引用即清。
+- 验收：代码审查（无 storage API 写机密路径）+ 构建期 lint 规则约束。
+
 ## 4. 非功能需求（SP-N，全部绑定测量方法）
 
 | 编号 | 需求 | 量化指标 | 测量方法 |
@@ -179,6 +214,7 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 | OS 剪贴板 | arboard（Windows clipboard API）；Win+V 历史不受控已在 help 明示 |
 | OS 文件权限 | Windows ACL 限定当前用户（等价 0600）；POSIX 平台 0600 |
 | 终端 | rpassword 交互输入；UTF-8；Git Bash/PowerShell/cmd |
+| 浏览器 native messaging（V1.1） | Chrome/Edge MV3 `connectNative`；帧=32 位本机字节序长度+UTF-8 JSON（上限 host→浏览器 1MB / 浏览器→host 64MiB）；host manifest 经 HKCU 注册表发现 |
 
 ## 6. 数据需求
 
@@ -204,7 +240,7 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 条目模型：自定义字段天然扩展位（passkey/证书等未来类型）。
 - 导入器：解析器注册表设计（新增来源即插）。
 - 服务器轨（F6）：客户端侧 secrets 网关接口位（`sp read` 的后端抽象，v0.1 仅本地实现）。
-- 后续路线：步骤 2 WSL/Linux（同一代码库交叉验证）→ 步骤 3 浏览器扩展（native messaging + 本填充引擎）→ 步骤 4 Android（UniFFI 复用内核）→ 步骤 5 macOS/iOS（远期）。
+- 后续路线：步骤 2 WSL/Linux（✅ v0.1.2-linux）→ 步骤 3 浏览器扩展（native messaging + 本填充引擎，V1.1 已升级为正式需求 §3.7）→ 步骤 4 Android（UniFFI 复用内核）→ 步骤 5 macOS/iOS（远期）。
 
 ## 9. 待确认事项
 
@@ -212,4 +248,4 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 
 ## 10. 后续版本路线（v0.2+）
 
-v0.2：1pux 解析器、会话缓存决策（keyring/加密 state）、指纹去重第三级增强；v0.3：WSL/Linux 一等支持（步骤 2）；v0.4+：浏览器扩展（步骤 3）；服务器轨与移动端见基线 §9 里程碑。
+v0.2：1pux 解析器、指纹去重第三级增强、协议层 P2（TweetNaCl box 加密，DR-006 适配器切换点）、host 密钥复用开库（省每请求 KDF）；会话缓存决策已部分由 DR-006 收敛（host 进程内缓存+超时锁库，跨进程持久化缓存仍为 backlog）；v0.3：WSL/Linux 一等支持（步骤 2，✅ v0.1.2-linux）；v0.4：浏览器扩展（步骤 3，V1.1 提前实现）；服务器轨与移动端见基线 §9 里程碑。

@@ -1,0 +1,25 @@
+[package]
+name = "sp-nmhost"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "SuperPasswdKey native messaging host for browser extension (F1, design_docs/10-12)"
+
+[dependencies]
+sp-core = { workspace = true }
+sp-kdbx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+zeroize = { workspace = true }
+
+[lib]
+name = "sp_nmhost"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sp-nmhost"
+path = "src/main.rs"

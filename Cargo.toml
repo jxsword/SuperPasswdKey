@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/sp-core", "crates/sp-kdbx", "crates/sp-cli"]
+members = ["crates/sp-core", "crates/sp-kdbx", "crates/sp-cli", "crates/sp-nmhost"]
 
 [workspace.package]
 version = "0.1.0"
