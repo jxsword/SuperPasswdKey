@@ -1,22 +1,27 @@
 //! F8 纯逻辑组件（SP-F-301，design_docs/04）：.env 解析、遮蔽过滤器、变量名净化。
 //! 进程生成点在 `spawner.rs`（用户显式指定的子命令，argv 直 exec）。
 //! .env 语法对齐 1Password op 规则（基线 §3.2#6）。
+//!
+//! 注：run/inject 编排依赖 spawner.rs（待用户落盘），届时移除本模块 dead_code 标注。
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use zeroize::Zeroizing;
 
 use sp_core::SpError;
 
 /// 系统关键变量保护名单（SP-F-301：永不覆盖）
+#[allow(dead_code)] // run/inject 接线后使用
 const PROTECTED_VARS: &[&str] = &["PATH", "HOME", "USER", "TERM", "SHELL", "LC_ALL", "LANG"];
 
+#[allow(dead_code)] // run/inject 接线后使用
 pub fn is_protected(key: &str) -> bool {
     PROTECTED_VARS.contains(&key) || key.starts_with("XDG_") || key.starts_with("LC_")
 }
 
 /// POSIX 变量名净化（SP-F-301：对齐 bws --uuids-as-keynames 语义）
+#[allow(dead_code)] // run/inject 接线后使用
 pub fn posix_name(key: &str) -> String {
     let mut out: String = key
         .chars()
@@ -39,6 +44,10 @@ pub fn posix_name(key: &str) -> String {
 
 // ---------- .env 解析 ----------
 
+/// 变量查找函数类型（文件内已解析变量 → 进程环境 回退）
+pub type VarLookup = fn(&[(String, String)], &str) -> Option<String>;
+
+#[allow(dead_code)] // run/inject 接线后使用（H4 完成）
 pub fn parse_env_file(path: &Path) -> Result<Vec<(String, String)>, SpError> {
     let raw =
         std::fs::read_to_string(path).map_err(|e| SpError::Io(format!("read env file: {e}")))?;
@@ -104,11 +113,7 @@ fn quote_parity_open(s: &str) -> bool {
     in_quote
 }
 
-fn unquote_and_expand(
-    value: &str,
-    parsed: &[(String, String)],
-    lookup: fn(&[(String, String)], &str) -> Option<String>,
-) -> String {
+fn unquote_and_expand(value: &str, parsed: &[(String, String)], lookup: VarLookup) -> String {
     let v = value.trim();
     if let Some(rest) = v.strip_prefix('\'') {
         let inner = rest.strip_suffix('\'').unwrap_or(rest);
@@ -164,6 +169,7 @@ fn unquote_and_expand(
 
 // ---------- 遮蔽过滤器（SP-N-306：100% 替换，跨 chunk 边界） ----------
 
+#[allow(dead_code)] // run/inject 接线后使用
 pub struct Masker {
     secrets: Vec<Vec<u8>>,
     tail: Vec<u8>,
@@ -172,6 +178,7 @@ pub struct Masker {
 }
 
 impl Masker {
+    #[allow(dead_code)]
     pub fn new(secrets: Vec<Zeroizing<String>>) -> Self {
         let raw: Vec<Vec<u8>> = secrets.iter().map(|s| s.as_bytes().to_vec()).collect();
         let max_len = raw.iter().map(|s| s.len()).max().unwrap_or(0);
@@ -182,6 +189,7 @@ impl Masker {
         }
     }
 
+    #[allow(dead_code)]
     fn find_first(&self) -> Option<(usize, usize)> {
         let mut best: Option<(usize, usize)> = None;
         for secret in &self.secrets {
@@ -197,6 +205,7 @@ impl Masker {
         best
     }
 
+    #[allow(dead_code)]
     pub fn filter_chunk(&mut self, chunk: &[u8], out: &mut impl Write) -> std::io::Result<()> {
         self.tail.extend_from_slice(chunk);
         while let Some((pos, len)) = self.find_first() {
@@ -213,6 +222,7 @@ impl Masker {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn finish(&mut self, out: &mut impl Write) -> std::io::Result<()> {
         while let Some((pos, len)) = self.find_first() {
             out.write_all(&self.tail[..pos])?;
@@ -225,6 +235,7 @@ impl Masker {
     }
 }
 
+#[allow(dead_code)]
 fn find_sub(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
@@ -346,5 +357,43 @@ mod tests {
         assert!(is_protected("XDG_CONFIG_HOME"));
         assert!(is_protected("LC_ALL"));
         assert!(!is_protected("DB_PASSWORD"));
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+    use std::io::BufWriter;
+
+    proptest! {
+        /// 任意字节级输入下 .env 解析器不崩溃（F9/H7 属性测试）
+        #[test]
+        fn env_parse_never_panics(input in ".*") {
+            let _ = parse_env_str(&input);
+        }
+
+        /// 任意分块下遮蔽过滤器不泄漏（SP-N-306 属性化）
+        #[test]
+        fn masker_never_leaks_across_chunks(
+            secret in "[A-Za-z0-9]{8,24}",
+            filler in "[a-z ]{0,40}",
+            step in 1usize..16,
+        ) {
+            let m = Masker::new(vec![Zeroizing::new(secret.clone())]);
+            let payload = format!("{filler}{secret}{filler}{secret}{filler}");
+            let mut buf = Vec::new();
+            {
+                let mut mm = m;
+                let mut w = BufWriter::new(&mut buf);
+                for c in payload.as_bytes().chunks(step) {
+                    mm.filter_chunk(c, &mut w).unwrap();
+                }
+                mm.finish(&mut w).unwrap();
+            }
+            let out = String::from_utf8(buf).unwrap();
+            prop_assert!(!out.contains(&secret), "leaked at step {step}: {out}");
+            prop_assert_eq!(out.matches("<redacted>").count(), 2);
+        }
     }
 }

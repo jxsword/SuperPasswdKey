@@ -4,7 +4,9 @@
 
 mod commands;
 mod config;
+mod export;
 mod f8;
+mod importer;
 mod integrity;
 
 use std::path::PathBuf;
@@ -58,6 +60,38 @@ enum Command {
         #[arg(long)]
         timeout: Option<u64>,
     },
+    /// Bulk import (F9): dotenv | csv | bw-json | env | files
+    Import {
+        #[arg(long, global = true)]
+        dry_run: bool,
+        #[command(subcommand)]
+        kind: ImportKind,
+    },
+    /// Export everything (F10): default encrypted archive; --plaintext for JSON
+    Export {
+        /// Encrypted archive output path (age + zip)
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Plaintext JSON to stdout (requires password confirmation)
+        #[arg(long)]
+        plaintext: bool,
+        #[arg(long)]
+        stdout: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ImportKind {
+    /// .env file or directory (recursive .env*)
+    Dotenv { path: PathBuf },
+    /// Generic CSV with column alias mapping
+    Csv { path: PathBuf },
+    /// Bitwarden JSON export (core fields)
+    BwJson { path: PathBuf },
+    /// Current process environment variables (in-memory scan)
+    Env,
+    /// Scan files for secrets (gitleaks rules, recursive)
+    Files { path: PathBuf },
 }
 
 #[derive(Subcommand)]
@@ -152,5 +186,53 @@ fn run(cli: Cli) -> Result<(), SpError> {
             out_file,
         } => commands::read(db, keyfile, uri, no_newline, out_file),
         Command::Clip { uri, timeout } => commands::clip(db, keyfile, uri, timeout),
+        Command::Import { kind, dry_run } => match kind {
+            ImportKind::Dotenv { path } => commands::import(commands::ImportOptions {
+                cli_db: cli.db.clone(),
+                cli_keyfile: cli.keyfile.clone(),
+                kind: "dotenv".into(),
+                path: Some(path),
+                dry_run,
+            }),
+            ImportKind::Csv { path } => commands::import(commands::ImportOptions {
+                cli_db: cli.db.clone(),
+                cli_keyfile: cli.keyfile.clone(),
+                kind: "csv".into(),
+                path: Some(path),
+                dry_run,
+            }),
+            ImportKind::BwJson { path } => commands::import(commands::ImportOptions {
+                cli_db: cli.db.clone(),
+                cli_keyfile: cli.keyfile.clone(),
+                kind: "bw-json".into(),
+                path: Some(path),
+                dry_run,
+            }),
+            ImportKind::Env => commands::import(commands::ImportOptions {
+                cli_db: cli.db.clone(),
+                cli_keyfile: cli.keyfile.clone(),
+                kind: "env".into(),
+                path: None,
+                dry_run,
+            }),
+            ImportKind::Files { path } => commands::import(commands::ImportOptions {
+                cli_db: cli.db.clone(),
+                cli_keyfile: cli.keyfile.clone(),
+                kind: "files".into(),
+                path: Some(path),
+                dry_run,
+            }),
+        },
+        Command::Export {
+            out,
+            plaintext,
+            stdout,
+        } => commands::export_all(commands::ExportOptions {
+            cli_db: cli.db.clone(),
+            cli_keyfile: cli.keyfile.clone(),
+            out,
+            plaintext,
+            stdout,
+        }),
     }
 }
