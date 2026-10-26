@@ -15,7 +15,7 @@ flowchart TD
     ITEM --> IDEL["delete <名称/ID>"]
     SP --> READ["read <uri> [-n] [--out-file]"]
     SP --> CLIP["clip <uri> [--timeout 30]"]
-    SP --> RUN["run [--env-file] [--no-masking] -- cmd"]
+    SP --> RUN["run [--env-file] [--no-masking] [--stdin] -- cmd"]
     SP --> INJECT["inject [-i tpl] [-o out] [--stdout]"]
     SP --> IMP["import <source> [--dry-run] [--dedup-level]"]
     SP --> EXP["export [--out] [--plaintext] [--stdout]"]
@@ -55,11 +55,12 @@ v0.1 无跨进程缓存：每个命令独立走 Prompting→Zeroizing（冲刺�
 
 ## 5. 平台行为
 
-| 行为 | Windows | POSIX（步骤 2） |
+| 行为 | Windows | POSIX（v0.1.2-linux 已实现） |
 |---|---|---|
-| --out-file / inject 产物权限 | ACL 限定当前用户（icacls 语义） | 0600 |
+| --out-file / inject 产物权限 | ACL 限定当前用户（icacls 语义） | 0600（`restrict_perms` 单测覆盖） |
 | 交互输入编码 | UTF-8（Git Bash）/ UTF-16 转换（PowerShell 管道） | UTF-8 |
-| 剪贴板 | arboard Windows 后端 | 后端 trait 预留 |
+| 剪贴板 | arboard Windows 后端 | arboard X11/Wayland 后端（无显示环境报错属预期） |
+| run 机密传递 | 环境块注入（无 /proc） | 默认环境块注入；`--stdin` 变体走 NUL 分隔 stdin（04 §4.1） |
 
 ## 6. 输出语言
 

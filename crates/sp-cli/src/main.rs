@@ -2,13 +2,7 @@
 //!
 //! 退出码（SP-F-204）：0 成功 / 1 一般 / 2 凭据 / 3 未找到 / 4 参数。
 
-mod commands;
-mod config;
-mod export;
-mod f8;
-mod importer;
-mod integrity;
-mod spawner;
+use sp_cli::{commands, f8};
 
 use std::path::PathBuf;
 
@@ -63,6 +57,10 @@ enum Command {
         /// Disable output redaction (debug only)
         #[arg(long)]
         no_masking: bool,
+        /// Pass secrets via NUL-delimited stdin records instead of env vars
+        /// (avoids /proc/<pid>/environ exposure; POSIX, design_docs/04 §4.1)
+        #[arg(long)]
+        stdin: bool,
         /// Command and args after --
         #[arg(last = true, required = true)]
         cmd: Vec<String>,
@@ -214,9 +212,10 @@ fn run(cli: Cli) -> Result<(), SpError> {
         Command::Run {
             env_file,
             no_masking,
+            stdin,
             cmd,
         } => {
-            let code = f8::run(db, keyfile, env_file, no_masking, cmd)?;
+            let code = f8::run(db, keyfile, env_file, no_masking, stdin, cmd)?;
             std::process::exit(code);
         }
         Command::Inject {

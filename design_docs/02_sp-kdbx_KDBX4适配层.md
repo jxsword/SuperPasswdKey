@@ -72,4 +72,6 @@ sequenceDiagram
 
 ## 5. 平台抽象（SP-N-308 预埋）
 
-文件权限（Windows ACL / POSIX 0600）与剪贴板后端定义为 trait `FilePerms` / `ClipboardBackend`，v0.1 仅 Windows 实现；Linux 实现留步骤 2。
+文件权限与剪贴板后端按平台分支实现（v0.1 实测为 `cfg(windows)/cfg(unix)` 编译期分支，未引入运行期 trait——实测抽象成本大于收益，回退策略 trait 仍为 DR-005 预留方案）：
+- 文件权限：Windows ACL（icacls）/ POSIX 0600（`PermissionsExt`）——`sp-cli::commands::restrict_perms`，v0.1.2-linux 起双平台实现并有单测覆盖。
+- 剪贴板：arboard 跨平台后端（Windows 原生 / Linux X11、Wayland）；WSL 等无显示环境 clip 运行时报错属预期。

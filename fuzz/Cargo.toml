@@ -1,0 +1,22 @@
+[package]
+name = "sp-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+sp-cli = { path = "../crates/sp-cli" }
+
+[[bin]]
+name = "env_parser"
+path = "fuzz_targets/env_parser.rs"
+test = false
+doc = false
+bench = false
+
+# 独立 workspace：不并入根 workspace（fuzz 仅本地短跑，不进 CI——design_docs/07）
+[workspace]
