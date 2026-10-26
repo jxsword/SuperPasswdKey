@@ -41,6 +41,9 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue))       { throw "gh not f
 if (-not (Test-Path $SecretKey)) { throw "secret key not found: $SecretKey" }
 if (-not (Test-Path $PubKey))    { throw "public key not found: $PubKey" }
 
+# 幂等：清空上次运行残留（gh run download 拒绝覆盖已存在文件）
+if (Test-Path $Work) { Remove-Item -Recurse -Force $Work }
+
 # 1) 下载 CI 构建的发布产物（Release 已存在 → Release 资产；否则需 -ArtifactRunId）
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 Push-Location $Work
