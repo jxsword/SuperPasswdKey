@@ -65,3 +65,20 @@
 
 - 门禁：cargo test --workspace 全绿（27 测试 + roundtrip 对拍）/ clippy -D warnings 零告警 / fmt / deny 全绿 / build 零警告
 - CI：新增 linux job（fmt/clippy/test，cargo-fuzz 不进 CI，07 §3 同步）
+
+---
+
+## 步骤 3：浏览器扩展设计轮（2026-10-27，feature/browser-ext）
+
+- 对象：design_docs/10/11/12（新增）+ SRS V1.1（F1 升级 SP-F-7xx）+ 追溯矩阵 + DR-006｜依据：B4 基线、keepassxc-protocol.md 与 Chrome 官方文档（均 2026-10-27 实测可达）
+
+| # | 发现 | 处置 |
+|---|---|---|
+| 1 | 方案 A 原表述"缓存派生密钥、每请求除 KDF 外 <50ms"隐含密钥复用开库，但 keepass_ng 0.11.12 无公开 API（get_key_elements 为 pub(crate)） | 按实现可行语义修正：缓存 CredentialFactors（SecVec），每请求重开库（含 KDF ~700ms）如实写入 10 §3/11 §7/DR-006；密钥复用开库列 v0.2 backlog |
+| 2 | MV3 SW 生命周期与长驻 host 冲突：SW 30s 空闲终止→端口断开→host 被杀→缓存丢失（官方文档核实：Chrome 114 起仅收发消息重置计时） | 11 §7 保活策略：解锁期间 chrome.alarms 周期 sp.ping（收发双向重置）；断线即会话失效引导重解锁；host 空闲超时兜底 |
+| 3 | P1 明文管道残余风险需如实声明（用户要求 P2 预留适配器） | 11 §2 信封 v/codec 切换点（plain/naclbox），业务层不感知 codec；11 §5 P1 声明并入 SP-F-303 范围；DR-006 记录结论 |
+| 4 | "导出全库给扩展"违反 09 安全边界 | 11 §3 动作集仅 get-logins（无密码）/get-secret（单条显式），无枚举全库动作；SP-F-702 验收挂钩 |
+| 5 | get-logins 的 id 语义：v0.1 条目模型以 title 为键 | 11 §3 如实声明 id=title 及其局限（重名/改名场景，backlog） |
+
+- 门禁：设计自查通过；URL 三件套（keepassxc-protocol.md / developer.chrome.com native messaging / SW lifecycle）实测可达并写入文档；DR-006 经用户拍板（方案 A + P1/适配器）
+

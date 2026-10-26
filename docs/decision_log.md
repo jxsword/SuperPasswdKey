@@ -39,3 +39,11 @@
 - 理由: 实测证据优于标签；round-trip 测试（crates/sp-kdbx/tests/roundtrip.rs）为互操作回归护栏
 - 影响: 实测发现 3 个互操作坑并已文档化：①keyfile 必须官方 XML v1.0 格式（legacy raw-32B 语义分歧：keepass_ng 直接用字节、KeePassXC SHA-256(内容)）；②Windows keepassxc-cli 无管道密码能力（测试用 keyfile-only + --no-password）；③KeePassXC "otp" 属性仅接受 otpauth:// URL 或 KeeOtp 格式（seed?period= 不解析）。KDF 参数经 KdfConfig::Argon2id（memory 单位=字节）
 - 记录时间 / 会话: 2026-10-26 / SuperPasswdKey 开发会话
+
+## DR-006 2026-10-27 浏览器扩展 host 形态=长驻进程内会话缓存 + 协议加密 P1/适配器 [状态: 生效]
+- 背景: 步骤 3（F1）native messaging host 选型。平台要求 host 常驻；v0.1 无跨进程缓存；KDF ~700ms。keepass_ng 0.11.12 源码核实无公开"复合密钥直开库"API（get_key_elements 为 pub(crate)），每请求重开库必含 KDF。
+- 选项与权衡: A(长驻 host+凭据因子缓存+空闲超时清零+每请求重开库，明文条目不常驻、可读外部修改，代价单请求≈KDF+<50ms，选定); B(解密条目常驻内存，最快但明文驻留窗口最大、外部修改不可见，弃用); C(一次性命令复用，浏览器子进程无 TTY 无法交互解锁、传密码违红线 #5，与 native messaging 常驻模型冲突，弃用)。协议加密: P1(明文管道+allowed_origins 绑定+主密码一次传输即清，MVP 选定——对同用户内存注入威胁加密层无可防增益); P2(TweetNaCl box 照搬 KeePassXC，+2~3 天且引入 nonce/握手 bug 面，弃用理由=工期，预留适配器切换点)
+- 结论: sp-nmhost 独立长驻二进制（方案 A）；会话=进程内缓存 CredentialFactors(SecVec)+空闲 300s 锁库；协议信封含 v/codec 字段，codec=plain(P1)/naclbox(P2 预留)，业务层不感知 codec；与 v0.2 backlog"会话缓存决策"合并收敛：进程内缓存由本 DR 定稿，跨进程持久化缓存（keyring/DPAPI）仍为 backlog
+- 理由: 唯一在"红线 #5 主密码不出进程"与浏览器场景可用性间自洽；适配器策略按用户要求兼顾进度与后续升级 P2 的路径
+- 影响: crates/sp-nmhost、extension/、native-host/ 注册脚本、design_docs/10/11/12、SRS V1.1（SP-F-7xx）、追溯矩阵；v0.2 backlog 项调整见 SRS §10
+- 记录时间 / 会话: 2026-10-27 / SuperPasswdKey 步骤3 开发会话
