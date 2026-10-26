@@ -30,3 +30,8 @@ Thumbs.db
 # 本地安全扫描器状态（不入仓）
 .mimosa/
 .zcode/
+
+# Minisign 私钥 —— 绝不入仓（DR-007）；公钥 minisign.pub 例外，应提交
+minisign.key
+.minisign/
+*.minisign.key

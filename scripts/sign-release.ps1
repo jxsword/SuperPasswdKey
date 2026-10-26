@@ -14,7 +14,9 @@
 param(
     [Parameter(Mandatory = $true)] [string]$Tag,
     [string]$SecretKey = "$env:USERPROFILE\.minisign\minisign.key",
-    [string]$PubKey = "$env:USERPROFILE\.minisign\minisign.pub"
+    [string]$PubKey = "$env:USERPROFILE\.minisign\minisign.pub",
+    # Release 尚未创建时可从指定 CI run 下载 artifact（gh run list 按 tag 查询）
+    [string]$ArtifactRunId = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,12 +28,19 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue))       { throw "gh not f
 if (-not (Test-Path $SecretKey)) { throw "secret key not found: $SecretKey" }
 if (-not (Test-Path $PubKey))    { throw "public key not found: $PubKey" }
 
-# 1) 下载 CI 构建的发布 artifact
+# 1) 下载 CI 构建的发布 artifact（Release 已存在 → Release 资产；否则需 -ArtifactRunId）
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 Push-Location $Work
-gh release download $Tag --repo $Repo --pattern "sp-windows-release" --clobber
-$zip = Get-ChildItem -File | Select-Object -First 1
-if (-not $zip) { throw "no artifact downloaded for tag $Tag" }
+$releaseExists = gh release view $Tag --repo $Repo 2>$null
+if ($LASTEXITCODE -eq 0) {
+    gh release download $Tag --repo $Repo --pattern "sp-windows-release" --clobber
+} elseif ($ArtifactRunId) {
+    gh run download $ArtifactRunId --repo $Repo -n sp-windows-release -D $Work
+} else {
+    throw "Release $Tag not found; pass -ArtifactRunId <run id> to fetch the CI artifact"
+}
+$zip = Get-ChildItem -File | Where-Object { $_.Name -match '\.zip$' } | Select-Object -First 1
+if (-not $zip) { throw "no artifact zip downloaded for tag $Tag" }
 Expand-Archive -Path $zip.Name -DestinationPath . -Force
 
 # 2) 本地签名（minisign 交互式索要私钥口令）
@@ -43,12 +52,13 @@ if (-not (Test-Path "$sums.minisig")) { throw "signing produced no .minisig" }
 # 3) 发布：Release 不存在则创建，随后上传产物与签名
 $exists = gh release view $Tag --repo $Repo 2>$null
 if ($LASTEXITCODE -ne 0) {
-    gh release create $Tag --repo $Repo --title $Tag --generate-notes
+    gh release create $Tag --repo $Repo --title $Tag --target main --generate-notes
 }
-gh release upload $Tag --repo $Repo $sums "$sums.minisig" $PubKey --clobber
+gh release upload $Tag --repo $Repo $zip.Name $sums "$sums.minisig" $PubKey --clobber
 
 Write-Host ""
 Write-Host "Release $Tag signed and uploaded:"
+Write-Host "  - $($zip.Name) (from CI artifact)"
 Write-Host "  - $sums (from CI artifact)"
 Write-Host "  - $sums.minisig (minisign, local key)"
 Write-Host "  - minisign.pub (for verifiers)"
