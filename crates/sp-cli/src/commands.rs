@@ -569,3 +569,27 @@ pub fn export_all(opts: ExportOptions) -> Result<(), SpError> {
         crate::export::export_encrypted(&db, out)
     }
 }
+
+#[cfg(all(test, unix))]
+mod posix_perms_tests {
+    use super::*;
+
+    /// POSIX 0600 分支实测（design_docs/03 §5：--out-file / inject 产物权限）
+    #[test]
+    fn restrict_perms_sets_mode_0600() {
+        let path = std::env::temp_dir().join(format!(
+            "sp-perms-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, b"secret").unwrap();
+        restrict_perms_public(&path).expect("restrict perms");
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "out-file must be 0600 on POSIX");
+        let _ = std::fs::remove_file(&path);
+    }
+}
