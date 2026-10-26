@@ -57,8 +57,9 @@ jobs:
           Copy-Item native-host/unregister.ps1 "$out/native-host/" -ErrorAction SilentlyContinue
           Copy-Item native-host/README.md "$out/native-host/"
           Push-Location $out
+          # 相对路径入清单（保留 native-host/ 子目录；避免平铺产生同名歧义）
           $h = Get-ChildItem -File -Recurse | Get-FileHash -Algorithm SHA256
-          $h | ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), $_.Path.Split('\')[-1] } | Out-File -Encoding ascii SHA256SUMS.txt
+          $h | ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), $_.Path.Substring((Get-Location).Path.Length + 1) } | Out-File -Encoding ascii SHA256SUMS.txt
           Compress-Archive -Path sp.exe, sp-nmhost.exe, README.md, native-host, SHA256SUMS.txt -DestinationPath "sp-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip" -Force
           Pop-Location
           Get-ChildItem $out
