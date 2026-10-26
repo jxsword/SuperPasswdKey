@@ -47,3 +47,21 @@
 ## 原第一轮内容归档前的核验清单（保留）
 
 - 与 SRS 的追溯核对（第一轮已做全量）：✅
+
+---
+
+## 步骤 2：Linux（WSL ubuntu2604）移植轮（2026-10-27，feature/linux-port）
+
+- 对象：design_docs/02/03/04 + sp-kdbx/sp-cli 实现｜环境：Ubuntu 26.04, rustc 1.99.1, keepassxc-cli 2.7.10
+
+| # | 发现 | 处置 |
+|---|---|---|
+| 1 | 02 §5 声明 trait `FilePerms`/`ClipboardBackend`，实现实为 cfg 编译期分支（无 trait） | 按实现修正 02 §5：trait 回退方案仅保留为 DR-005 预留；权限双平台实现 + 单测；剪贴板 arboard 跨平台（X11/Wayland） |
+| 2 | 03 §5 平台表"POSIX（步骤 2）"已过时；剪贴板行"后端 trait 预留"与实现不符 | 更新为"v0.1.2-linux 已实现"；0600 单测覆盖（commands::restrict_perms_sets_mode_0600）；新增 run 机密传递行 |
+| 3 | 04 §4 `--stdin` 列为"POSIX 增强项"未定语义 | 新增 04 §4.1 定稿：对齐 gopass `env --stdin`（官方 man page 语义核实），NUL 分隔 `KEY=VALUE\0` 记录走 stdin，机密不进子进程环境；e2e 测试覆盖（crates/sp-cli/tests/run_stdin_e2e.rs） |
+| 4 | roundtrip.rs keepassxc-cli 路径硬编码 Windows，且未实现 SRS 声明的 `SP_KEEPASSXC_CLI` 覆盖 | 路径解析统一：env 覆盖 → `cfg!(windows)` 平台默认（Windows Program Files / Linux /usr/bin），Linux 对拍全通过 |
+| 5 | deny advisories 失败：zstd/zstd-safe 7.3.0 三条 RUSTSEC（2026-0391/0398/0403，内存安全类），修复版 zstd-safe ≥8.2.0 经 zip 4.6.1 仍不可达 | F10 仅写 Deflated、不读 zip → zip 改 `default-features = false, features = ["deflate"]`（4.6.1），zstd/bzip2/lzma/aes 全链移出依赖树，deny 全绿；攻击面与体积同步缩小 |
+| 6 | sp-cli 为纯 bin crate，fuzz 目标无法引用解析器 | 新增 lib.rs（模块 pub 化，bin 入口不变）；fuzz/ 独立 workspace，env_parser 目标（.env 解析器），结果见 docs/reviews/ |
+
+- 门禁：cargo test --workspace 全绿（27 测试 + roundtrip 对拍）/ clippy -D warnings 零告警 / fmt / deny 全绿 / build 零警告
+- CI：新增 linux job（fmt/clippy/test，cargo-fuzz 不进 CI，07 §3 同步）

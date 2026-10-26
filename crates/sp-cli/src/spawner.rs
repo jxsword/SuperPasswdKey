@@ -9,29 +9,36 @@
 use std::process::{Child, Stdio};
 use zeroize::Zeroizing;
 
-/// 启动子进程（argv 直 exec）。stdin 恒继承；capture=true 时 stdout/stderr
-/// 经遮蔽过滤器（design_docs/04 §2）转发。
+/// 启动子进程（argv 直 exec）。capture=true 时 stdout/stderr 经遮蔽过滤器
+/// （design_docs/04 §2）转发；stdin_piped=true 时 stdin 由父进程接管
+/// （--stdin 变体：机密走 NUL 分隔记录写入 stdin，design_docs/04 §4.1），
+/// 否则 stdin 恒继承。
 pub fn spawn_child(
     program: &str,
     args: &[String],
     envs: &[(String, Zeroizing<String>)],
     capture: bool,
+    stdin_piped: bool,
 ) -> std::io::Result<Child> {
     let mut cmd = std::process::Command::new(program);
     cmd.args(args);
     for (k, v) in envs {
         cmd.env(k, v.as_str());
     }
-    cmd.stdin(Stdio::inherit())
-        .stdout(if capture {
-            Stdio::piped()
-        } else {
-            Stdio::inherit()
-        })
-        .stderr(if capture {
-            Stdio::piped()
-        } else {
-            Stdio::inherit()
-        });
+    cmd.stdin(if stdin_piped {
+        Stdio::piped()
+    } else {
+        Stdio::inherit()
+    })
+    .stdout(if capture {
+        Stdio::piped()
+    } else {
+        Stdio::inherit()
+    })
+    .stderr(if capture {
+        Stdio::piped()
+    } else {
+        Stdio::inherit()
+    });
     cmd.spawn()
 }
