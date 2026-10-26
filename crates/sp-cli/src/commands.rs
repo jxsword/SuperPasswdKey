@@ -27,7 +27,7 @@ fn resolve_db(cli_db: Option<&Path>, cfg: &Config) -> Result<PathBuf, SpError> {
 
 /// 读取秘密输入（SP-F-105）：TTY → rpassword 隐藏回显；非 TTY（脚本/CI）→ stdin 行读取。
 /// Windows 实测：rpassword::read_password 只读控制台 CONIN$，管道 stdin 会永久阻塞。
-fn read_secret(prompt: &str) -> Result<Zeroizing<String>, SpError> {
+pub(crate) fn read_secret(prompt: &str) -> Result<Zeroizing<String>, SpError> {
     use std::io::IsTerminal;
     print!("{prompt}");
     let _ = std::io::stdout().flush();
@@ -447,4 +447,117 @@ pub fn clip(
     ctx.set_text(String::new())
         .map_err(|e| SpError::Clipboard(format!("clear clipboard: {e}")))?;
     Ok(())
+}
+
+// ---------- F9 导入（SP-F-401~403） ----------
+
+/// 导入参数包
+pub struct ImportOptions {
+    pub cli_db: Option<PathBuf>,
+    pub cli_keyfile: Option<PathBuf>,
+    pub kind: String,
+    pub path: Option<PathBuf>,
+    pub dry_run: bool,
+}
+
+pub fn import(opts: ImportOptions) -> Result<(), SpError> {
+    let ImportOptions {
+        cli_db,
+        cli_keyfile,
+        kind,
+        path,
+        dry_run,
+    } = opts;
+    let cli_db = cli_db.as_deref();
+    let cli_keyfile = cli_keyfile.as_deref();
+    let findings = match kind.as_str() {
+        "dotenv" => crate::importer::parse_dotenv(
+            path.as_deref()
+                .ok_or_else(|| SpError::Parameter("dotenv requires <path>".into()))?,
+        )?,
+        "csv" => crate::importer::parse_csv(
+            path.as_deref()
+                .ok_or_else(|| SpError::Parameter("csv requires <path>".into()))?,
+        )?,
+        "bw-json" => crate::importer::parse_bw_json(
+            path.as_deref()
+                .ok_or_else(|| SpError::Parameter("bw-json requires <path>".into()))?,
+        )?,
+        "env" => crate::importer::parse_env_snapshot(),
+        "files" => crate::importer::parse_files(
+            path.as_deref()
+                .ok_or_else(|| SpError::Parameter("files requires <path>".into()))?,
+        )?,
+        other => return Err(SpError::Parameter(format!("unknown import kind '{other}'"))),
+    };
+    let report = crate::importer::build_candidates(findings);
+    println!(
+        "Scan: {} findings -> {} unique candidates (L1 dup {} / L2 merged {} / L3 conflicts {})",
+        report.total, report.unique, report.l1_duplicates, report.l2_merged, report.l3_conflicts
+    );
+    for m in &report.manual_review {
+        println!("REVIEW {m}");
+    }
+    if dry_run {
+        println!("Dry run: nothing imported.");
+        return Ok(());
+    }
+    let cfg = config::load()?;
+    let db_path = resolve_db(cli_db, &cfg)?;
+    let c2 = cfg.clone();
+    let (mut db, factors) = open_with_config(&db_path, cli_keyfile, &cfg, |cc| {
+        let mut c = c2.clone();
+        c.baseline_sha256 = cc.baseline_sha256.clone();
+        config::save(cc)
+    })?;
+    for m in &report.candidates {
+        sp_kdbx::add_entry(&mut db, m)?;
+    }
+    save_and_backup(&mut db, &db_path, &factors)?;
+    println!("Imported {} entries.", report.candidates.len());
+    Ok(())
+}
+
+// ---------- F10 导出（SP-F-501~503） ----------
+
+/// 导出参数包
+pub struct ExportOptions {
+    pub cli_db: Option<PathBuf>,
+    pub cli_keyfile: Option<PathBuf>,
+    pub out: Option<PathBuf>,
+    pub plaintext: bool,
+    pub stdout: bool,
+}
+
+pub fn export_all(opts: ExportOptions) -> Result<(), SpError> {
+    let ExportOptions {
+        cli_db,
+        cli_keyfile,
+        out,
+        plaintext,
+        stdout,
+    } = opts;
+    let cli_db = cli_db.as_deref();
+    let cli_keyfile = cli_keyfile.as_deref();
+    let out = out.as_deref();
+    let cfg = config::load()?;
+    let db_path = resolve_db(cli_db, &cfg)?;
+    let c2 = cfg.clone();
+    let (db, factors) = open_with_config(&db_path, cli_keyfile, &cfg, |cc| {
+        let mut c = c2.clone();
+        c.baseline_sha256 = cc.baseline_sha256.clone();
+        config::save(cc)
+    })?;
+    if plaintext {
+        // 三重防护之二：重输主密码确认
+        crate::export::confirm_master_password(&factors)?;
+        if !stdout {
+            eprintln!("NOTE: plaintext export goes to stdout; no temp file is written.");
+        }
+        crate::export::export_plaintext_stdout(&db)
+    } else {
+        let out =
+            out.ok_or_else(|| SpError::Parameter("encrypted export requires --out <file>".into()))?;
+        crate::export::export_encrypted(&db, out)
+    }
 }
