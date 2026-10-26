@@ -4,7 +4,7 @@ Local-first, zero-knowledge password/secret manager CLI with KDBX4 interoperabil
 
 本地优先、零知识的密码/机密管理器 CLI，KDBX4 全兼容。
 
-> Status: v0.1 in active development（v0.1 开发中，见 [design_docs/](design_docs/) 与 [docs/SRS.md](docs/SRS.md)）
+> Status: v0.1.0-mvp（CLI 全功能内核；F8 run/inject 编排接线、浏览器扩展、服务器轨见 [docs/SRS.md](docs/SRS.md) §10 路线）
 
 ## Security model / 安全模型（务必阅读）
 
@@ -26,3 +26,38 @@ Local-first, zero-knowledge password/secret manager CLI with KDBX4 interoperabil
 ## License
 
 AGPL-3.0-only. See [LICENSE](LICENSE).
+
+## Usage / 用法
+
+```bash
+# 初始化（Argon2id 校准至 ~700ms + XML keyfile 第二因子）
+sp init --db C:\Dataault.kdbx
+
+# 条目管理
+sp item create demo -u alice --url https://x.io --field env=prod --totp "otpauth://totp/demo?secret=..." -p
+sp item list
+sp item get demo            # 全字段
+sp item get demo --totp     # 当前 TOTP 码
+sp item delete demo
+
+# 单值读取（stdout / ACL 限定文件）
+sp read demo/Password
+sp read demo/Password -n --out-file out.txt
+
+# 剪贴板（默认 30s 自动清除；Win+V 历史不受控）
+sp clip demo/Password
+
+# 批量导入（F9：dotenv / csv / bw-json / env 快照 / files 扫描）
+sp import dotenv ./secrets.env --dry-run
+sp import files D:\projects
+
+# 批量导出（F10：默认 age 加密归档；明文需重输主密码 + stdout）
+sp export --out backup.age
+sp export --plaintext --stdout
+```
+
+## Password input / 密码输入
+
+Interactive prompts hide echo (rpassword). When stdin is not a TTY (scripts/CI),
+passwords are read line-by-line from stdin — never pass real secrets through
+pipes you don't control. 交互提示隐藏回显；非终端（脚本/CI）从 stdin 按行读取。
