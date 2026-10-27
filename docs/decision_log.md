@@ -63,3 +63,11 @@
 - 理由: 信息价值不对称——spike 事实先行使后续资源分配基于实测而非猜测；桌面各项彼此独立可随时恢复，机会成本近零。
 - 影响: docs/任务书_step4.md；后续 DR-009 起（spike 结论/移动端 KDF 参数/生物识别解锁均需独立 DR）
 - 记录时间 / 会话: 2026-10-27 / SuperPasswdKey 步骤3 开发会话
+
+## DR-009 2026-10-27 Android 转正：阶段3(M1 系统 Autofill)为主线，桌面阶段1 降穿插 [状态: 生效]
+- 背景: Spike（PR #14）按 DR-008 三项全过——①UniFFI Kotlin 绑定编译通过（APK 构建成功）②模拟器 KDBX4 e2e 8 断言全绿 ③64MiB Argon2id 1045~1124ms、VmHWM delta≈68MiB（**非真机**）；aarch64 release 交叉编译通过。结构性发现：keepass_ng Database 为 !Send+!Sync，UniFFI 对象强制 Send+Sync → 线程封闭 actor 解法可行（design_docs/13 §2）。
+- 选项与权衡: A(Android 主线+桌面穿插≤20%，遵循 DR-008 预设承诺、最大假设组已消解大半、环境与上下文热，劣=真机口径未验，选定); B(回桌面阶段1，确定性收益无真机依赖、工期短，但与 DR-008 预设相悖、Android 热度流失、风险后置，弃用); A 变体(穿插项固定为桌面阶段1，未选——保持穿插择一灵活性)
+- 结论: 阶段3（M1 系统 Autofill）为主线；桌面阶段1（P2 加密+密钥复用开库）降穿插≤20%；SRS 升 V1.2 新增 SP-F-8xx；**真机验证列为 M1 前置任务**（SP-N-301/302 真机回填，需用户提供真机）。
+- 理由: DR-008 分流规则是决策时已确认的承诺且 spike 客观全过；剩余风险属"可在 M1 内回收验证"而非结构性受阻（spike 使命即排除结构性失败）。
+- 影响: SRS §2.3/§3.8/§8、追溯矩阵（SP-F-8xx）、design_docs/13 转正 v1.0；后续：FFI 面扩容、Autofill 设计（design_docs/14）、Android CI job；Keystore/生物识别仍单列 backlog（独立 DR）。
+- 记录时间 / 会话: 2026-10-27 / SuperPasswdKey 步骤4 spike 会话
