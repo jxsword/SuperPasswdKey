@@ -85,8 +85,19 @@ class SpAutofillService : AutofillService() {
     /** 页面标识：WebView 节点的 webDomain（浏览器）→ https://domain；否则 null（包名匹配） */
     private fun extractPageUrl(structure: AssistStructure): String? {
         var found: String? = null
+        var debugCount = 0
         fun walk(node: AssistStructure.ViewNode) {
-            if (found == null && !node.webDomain.isNullOrBlank()) found = node.webDomain
+            if (node.webDomain != null && found == null) found = node.webDomain
+            if (debugCount < 12) {
+                val hints = node.autofillHints?.joinToString(",") ?: ""
+                if (node.webDomain != null || hints.isNotEmpty()) {
+                    Log.d(
+                        TAG,
+                        "node[${debugCount}] cls=${node.className} web=${node.webDomain} hints=[$hints]",
+                    )
+                }
+                debugCount++
+            }
             for (i in 0 until node.childCount) walk(node.getChildAt(i))
         }
         for (w in 0 until structure.windowNodeCount) {

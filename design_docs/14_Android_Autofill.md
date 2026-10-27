@@ -55,5 +55,5 @@ Autofill 请求 ──► VaultSession（未解锁?）──► UnlockActivity�
 
 1. **M1a** ✅（2026-10-27）：match_url 抽取进 sp-core（纯搬移 + 测试随迁，sp-nmhost 保留同路径 glob 再导出，`crate::match_url::xxx` 引用不变）；workspace 69 测试全绿。
 2. **M1b** ✅（2026-10-27）：VaultSession（空闲 300s 锁库 + 懒检查，SP-F-802）+ UnlockActivity（手动解锁 + Autofill 认证回路）+ SpAutofillService（表单启发式/webDomain/包名匹配 + Dataset + 认证回路）+ DemoLoginActivity 演示链路；KDF 校准 `calibrate_mobile`（DR-010 终态：m=64MiB/p=4 固定，t∈[2,8] 校准至 target_ms，钳制边界测试）。**模拟器验证：service 触发 → 单源匹配（包名 bare-host）→ 数据集选择 → 字段填充成功（日志仅记值长度，SP-F-804）**。workspace 72 测试全绿。
-3. **M1c**：Chrome 真链路 + 真机验证包（KDF 复测 SP-N-301/302、Autofill 精度清单、后台行为）——KDF 真机基线已回填（android_真机安装测试方案 §7），Autofill 部分待 M1b。
+3. **M1c** 🟡（2026-10-28）：KDF 真机基线已回填（含 HyperOS 夜间降频 8–18s 的方法论发现，android_真机安装测试方案 §7/§8）；**原生路径真机闭环 ✅**（Redmi Turbo 3/HyperOS：解锁→包名匹配→填充）；浏览器路径受阻于第三方浏览器结构上报（Quark 实锤 R14-1）与 MIUI web 字段门禁（R14-3 实锤）——**真实 Chrome 补测为 M1c 尾项**。
 4. backlog：Autofill 保存场景（新密码入库）、宽匹配、Keystore/生物识别（独立 DR）。
