@@ -3,6 +3,8 @@
 
     <application
         android:label="SP Spike"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.Light">
 
         <activity
@@ -13,6 +15,35 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- SP-F-803：Autofill 演示登录页（M1b 验收载体） -->
+        <activity
+            android:name=".DemoLoginActivity"
+            android:exported="true" />
+
+        <!-- SP-F-803 M1c：webDomain 路径演示（WebView 指定真实源） -->
+        <activity
+            android:name=".DemoWebActivity"
+            android:exported="true" />
+
+        <!-- SP-F-802：解锁 Activity（Autofill 认证回路 + 手动解锁入口） -->
+        <activity
+            android:name=".UnlockActivity"
+            android:exported="true"
+            android:noHistory="true" />
+
+        <!-- SP-F-803：系统 Autofill 服务（DR-009/design_docs/14） -->
+        <service
+            android:name=".SpAutofillService"
+            android:exported="true"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service_config" />
+        </service>
     </application>
 
 </manifest>

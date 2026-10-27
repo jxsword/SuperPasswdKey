@@ -1,8 +1,8 @@
 # 13 Android（UniFFI 复用内核）— Spike 骨架
 
-- 状态：v0.1 骨架（2026-10-27，Spike 产出，DR-008 时间盒内；**转正需用户确认并另行 DR-009**，SRS §2.3 非目标暂不改动）
-- 追溯：DR-002（内核复用承诺）、DR-008（spike 分流）、SP-N-301/302（KDF 实测回填）、SP-C-106（测试向量）
+- 状态：**v1.0（2026-10-27，Spike 转正，DR-009；SRS V1.2 SP-F-8xx 生效）**｜追溯：DR-002（内核复用承诺）、DR-008（spike 分流）、SP-N-301/302（KDF 实测回填）、SP-C-106（测试向量）
 - 实测报告：docs/reviews/android_spike_结论报告_2026-10-27.md（本骨架引用其数字，不重复展开）
+- 后续设计：M1 系统 Autofill 见 design_docs/14（v0.1 骨架已建）；Keystore/生物识别 backlog（独立 DR）
 
 ## 1. 绑定边界（spike 实现面）
 
@@ -42,14 +42,14 @@
 | R13-6 | Keystore/生物识别集成缺位（spike 明确不做） | — | backlog 单列（任务书 §约束）；不进本骨架 |
 | R13-7 | 主线程调用阻塞（actor 同步等待） | 低 | 正式壳层用协程包一层；spike 壳已知简化 |
 
-## 4. 待转正清单（不改 SRS/追溯矩阵正文，转正 DR-009 一并处理）
+## 4. 待转正清单（DR-009 已转正；✅=已完成）
 
-1. SRS §2.3 非目标移除 Android（或改"Android(阶段3 计划中)"）+ 新增 SP-F-8xx 功能面（开库/列表/取回/TOTP/Autofill 对接）。
-2. 追溯矩阵补 Android 行（DR-002 承诺闭环、SP-N-301/302 真机回填）。
-3. CI：Android 交叉编译 job（cargo-ndk x86_64+aarch64）+ 绑定漂移检查 + （可选）模拟器 e2e job。
-4. KDF 参数策略：移动端默认值（64MiB/t/p 组合在真机校准，SP-N-302）+ 校准入口是否暴露给 UI。
-5. FFI 面扩容评估：add/edit/save/attachments（桌面已实现，绑定层纯增量）。
-6. 真机验证（KDF 数字、Autofill 精度、后台行为）。
+1. ✅ SRS §2.3 非目标移除 Android + §3.8 SP-F-8xx（V1.2）；追溯矩阵补 SP-F-801~804（2026-10-27）。
+2. ✅ 追溯矩阵补 Android 行（DR-002 承诺闭环记录于 DR-009；SP-N-301/302 真机回填仍待真机）。
+3. CI：Android 交叉编译 job（cargo-ndk x86_64+aarch64）+ 绑定漂移检查 + （可选）模拟器 e2e job。**M1 执行中。**
+4. KDF 参数策略：**DR-010 已定稿**——终态=移动端 init 校准（t∈[2,8]/m=64MiB/p=4，目标 ~1s，移植 sp-core calibration.rs）；过渡=FFI 默认 t=4/p=4（≤2s 线，仅影响新建库）；校准下限 t=2 高于 OWASP 最低。**校准移植为 M1b 任务。**
+5. FFI 面扩容评估：add/edit/save/attachments（桌面已实现，绑定层纯增量）。**M1 执行中。**
+6. 真机验证（KDF 数字、Autofill 精度、后台行为）。**KDF 真机回填完成（2026-10-27，Redmi Turbo 3/骁龙 8s Gen 3，见 android_真机安装测试方案 §7）；Autofill 精度待 M1b。**
 
 ## 5. spike 验收结论（摘录，详见结论报告）
 
@@ -58,4 +58,5 @@
 | ① UniFFI Kotlin 绑定编译通过 | ✅（x86_64 模拟器 APK 构建成功） |
 | ② 模拟器 sp-kdbx 打开 KDBX4 e2e | ✅（8 项断言全过：全字段读回/摘要/TOTP/NotFound/Credentials） |
 | ③ 64MiB Argon2id ≤3s | ✅ 模拟器 1.0–1.1s、内存峰值 delta ≈68MiB（**非真机**） |
+| ③-真机回填（2026-10-27 追记） | ✅ Redmi Turbo 3（骁龙 8s Gen 3/Android 16）：2527/2205/2211 ms、VmHWM delta ≈86MiB、A1–A8+C1–C5 全过（android_真机安装测试方案 §7）；**余量 ~20–27% → 建议移动端默认降 t=4/p=4，DR-010 定稿** |
 | aarch64 发布目标交叉编译 | ✅（release 1.9MB .so） |
