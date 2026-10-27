@@ -21,11 +21,11 @@ Local-first, zero-knowledge password/secret manager CLI with KDBX4 interoperabil
 
 - Requirements: Rust 1.99.1 (via `rust-toolchain.toml`), Node 22 + pnpm 11 (extension only), KeePassXC ≥2.7 (tests only).
 - Build: `cargo build --release` ｜ Test: `cargo test` ｜ Lint: `cargo clippy -- -D warnings`
-- Extension: `cd extension && pnpm install && pnpm build` ｜ Design docs: [design_docs/](design_docs/) (architecture `00`, crypto scheme `09`, extension `10`-`12`, Android spike `13`, tests `07`, git flow `08`)
+- Extension: `cd extension && pnpm install && pnpm build` ｜ Design docs: [design_docs/](design_docs/) (architecture `00`, crypto scheme `09`, extension `10`-`12`, Android `13`-`14`, tests `07`, git flow `08`)
 
-## Android spike（实验性，DR-008，未发布）
+## Android（M1 原型已验证，DR-009/DR-010，未发布）
 
-Rust 内核经 UniFFI（`crates/sp-kffi`）复用于 Android 的技术验证已完成：Kotlin 绑定编译、x86_64 模拟器 KDBX4 开库 e2e、64MiB Argon2id 实测（1.0–1.1s，非真机）全过。**仅为 spike，不提供任何发布物**；KDF 与内存实测数字为模拟器值，不代表真机。设计与结论：[design_docs/13](design_docs/13_Android_UniFFI.md) ｜ [结论报告](docs/reviews/android_spike_结论报告_2026-10-27.md) ｜ 构建步骤：[android/README.md](android/README.md)。
+Rust 内核经 UniFFI（`crates/sp-kffi`）复用于 Android：UniFFI 绑定 + 线程封闭 actor（keepass_ng `Database` 非 Send）+ 最小 Autofill 壳。已验证：模拟器与真机（Redmi Turbo 3/HyperOS）原生路径 Autofill 端到端填充全通；KDF 64MiB Argon2id 真机 2.2–2.5s（HyperOS 夜间降频可达 8–18s，实测须记录电源状态）；移动端 KDF 默认参数定为 init 校准终态（DR-010，过渡 t=4/p=4）。**未提供发布物**；web 字段 autofill 委派受浏览器/ROM 策略限制（R14-1/3，待非 MIUI 真机 + Chrome 复核）。设计：[design_docs/13](design_docs/13_Android_UniFFI.md) ｜ [14](design_docs/14_Android_Autofill.md) ｜ [spike 结论](docs/reviews/android_spike_结论报告_2026-10-27.md) ｜ [真机测试方案与记录](docs/reviews/android_真机安装测试方案_2026-10-27.md) ｜ 构建：[android/README.md](android/README.md)。
 
 ## Browser extension / 浏览器扩展（v0.2.0-ext）
 
