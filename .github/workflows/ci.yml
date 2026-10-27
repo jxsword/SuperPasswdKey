@@ -108,6 +108,41 @@ jobs:
         with:
           rust-version: "stable"
 
+  android:
+    # Android 交叉编译 + Kotlin 绑定漂移检查（DR-009；design_docs/13 §4.3）
+    # ubuntu-latest 预装 Android SDK/NDK（ANDROID_HOME 已设），cargo-ndk 自动取最新 NDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain (locked by rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Android targets (on the pinned toolchain)
+        run: rustup target add x86_64-linux-android aarch64-linux-android
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Cross-compile (x86_64 emulator + aarch64 release target)
+        run: |
+          cargo ndk -t x86_64-linux-android --platform 28 -- build -p sp-kffi
+          cargo ndk -t aarch64-linux-android --platform 28 -- build -p sp-kffi --release
+
+      - name: Kotlin bindings drift check
+        run: |
+          cargo build -p sp-kffi
+          ./target/debug/uniffi-bindgen generate --library target/debug/libsp_kffi.so \
+            --language kotlin --out-dir /tmp/bindgen-check --no-format
+          diff -r /tmp/bindgen-check/uniffi/sp_kffi android/app/src/main/java/uniffi/sp_kffi
+
   extension:
     # 浏览器扩展构建门禁（SP-F-704/705；fuzz 不进 CI——design_docs/07）
     runs-on: ubuntu-latest

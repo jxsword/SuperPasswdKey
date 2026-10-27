@@ -1,9 +1,9 @@
 # SuperPasswdKey 软件需求规格说明书（SRS）
 
-- 版本：**V1.1（2026-10-27，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 浏览器扩展升级为正式需求 SP-F-7xx，DR-006）**
+- 版本：**V1.2（2026-10-27，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009）**
 - 开发模型：瀑布（三轮审核：完整性→一致性→可执行性，记录见 `docs/reviews/srs_review.md`）
 - 需求来源：《docs/research/自研需求基线_SuperPasswdKey.md》（B1–B22）、决策记录 DR-001~005、2 天冲刺计划两轮复审修正
-- 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
+- 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-F-8xx` Android（V1.2 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
 - 追溯：需求 ↔ 设计 ↔ 测试见 `docs/requirements_traceability_matrix.md`
 - 载体：本文档随代码入仓；范围 = 步骤 1（Windows CLI 全功能），后续步骤见 §10
 
@@ -43,8 +43,9 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 ### 2.3 v0.1 边界（非目标）
 
 > V1.1 变更：浏览器自动填充（F1）已升级为正式需求（§3.7，SP-F-7xx），自本节非目标移除。
+> V1.2 变更：Android（UniFFI 内核复用 + M1 系统 Autofill）已升级为正式需求（§3.8，SP-F-8xx），自本节非目标移除（DR-009；spike 事实见 design_docs/13）。iOS 仍为非目标。
 
-私有部署服务器（F6，后置）、Android/iOS、多库（B19）、1pux 解析、跨进程会话缓存（注：native messaging host 进程内会话缓存不属"跨进程持久化"，见 DR-006）、Shell Plugins（B8）、Watchtower（B10）、passkey 管理（B11）、共享（B15）、密码健康检查（B22）、生物识别解锁（B13）、应急包 PDF（B18）。以上仅做接口预留（§8）。
+私有部署服务器（F6，后置）、iOS、多库（B19）、1pux 解析、跨进程会话缓存（注：native messaging host 进程内会话缓存不属"跨进程持久化"，见 DR-006）、Shell Plugins（B8）、Watchtower（B10）、passkey 管理（B11）、共享（B15）、密码健康检查（B22）、生物识别解锁（B13，Android Keystore/生物识别同属此 backlog）、应急包 PDF（B18）。以上仅做接口预留（§8）。
 
 ## 3. 功能需求
 
@@ -188,6 +189,26 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 描述：扩展端机密只进内存即用即弃；不进 chrome.storage/localStorage/临时文件/日志；content script 填充后引用即清。
 - 验收：代码审查（无 storage API 写机密路径）+ 构建期 lint 规则约束。
 
+### 3.8 Android（SP-F-8xx，V1.2 新增，来源 DR-002 + DR-008/DR-009）
+
+> 设计见 design_docs/13（内核绑定与线程模型，spike 转正）；M1 Autofill 设计见 design_docs/14。Android 从 §2.3 非目标升级为正式需求；Keystore/生物识别解锁不在本组（backlog，独立 DR）。
+
+**SP-F-801 Android 内核绑定（P0，DR-002/DR-009，confirmed）**
+- 描述：`crates/sp-kffi` UniFFI 绑定复用 sp-core/sp-kdbx 内核（不复制加密代码）；线程模型=线程封闭 actor（keepass_ng Database !Send，每 Vault 一工作线程，命令 channel 派发）；双因子（主密码+keyfile）完整透传；摘要面不含密码（对齐 SP-F-706 语义）。
+- 验收：模拟器（x86_64）e2e 断言全过（开库/全字段读回/摘要/TOTP/NotFound/错密码 Credentials）；主机侧 cargo test 覆盖同一断言面；aarch64 release 交叉编译通过。
+
+**SP-F-802 Android 解锁会话（P0，红线#5#7，confirmed）**
+- 描述：解锁 Activity 收集主密码+keyfile；解锁后库句柄驻留内存（actor），空闲超时自动锁库并 drop（凭据随 drop 零化）；凭据不落 SharedPreferences/文件/日志。
+- 验收：空闲超时锁库（可注入时钟）；锁后机密操作拒绝；代码审查无机密持久化路径。
+
+**SP-F-803 系统 Autofill 对接（P0，M1，confirmed）**
+- 描述：`AutofillService`（android.service.autofill）响应系统填充请求：按 web 域名/包名匹配库内条目（URL 匹配语义对齐 SP-F-706），返回用户名+密码数据集；填充数据仅经 FFI 单条取回。
+- 验收：模拟器主链路（Chrome/演示 App 表单）填充成功；不匹配场景返回空集不猜测；真机精度实测列入验收前置。
+
+**SP-F-804 Android 机密边界（P0，红线延伸，confirmed）**
+- 描述：机密在 Android 侧只进内存即用即弃；不进 SharedPreferences/日志/剪贴板历史；JNI 边界的 String 不可零化限制（R13-1）如实写入用户文档（威胁边界声明，对齐 design_docs/09§4 诚实边界原则）。
+- 验收：代码审查（无持久化写机密路径）+ 文档评审。
+
 ## 4. 非功能需求（SP-N，全部绑定测量方法）
 
 | 编号 | 需求 | 量化指标 | 测量方法 |
@@ -240,7 +261,7 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 条目模型：自定义字段天然扩展位（passkey/证书等未来类型）。
 - 导入器：解析器注册表设计（新增来源即插）。
 - 服务器轨（F6）：客户端侧 secrets 网关接口位（`sp read` 的后端抽象，v0.1 仅本地实现）。
-- 后续路线：步骤 2 WSL/Linux（✅ v0.1.2-linux）→ 步骤 3 浏览器扩展（native messaging + 本填充引擎，V1.1 已升级为正式需求 §3.7）→ 步骤 4 Android（UniFFI 复用内核，✅ spike 完成/未发布，DR-008；转正待 DR-009）→ 步骤 5 macOS/iOS（远期）。
+- 后续路线：步骤 2 WSL/Linux（✅ v0.1.2-linux）→ 步骤 3 浏览器扩展（native messaging + 本填充引擎，V1.1 已升级为正式需求 §3.7）→ 步骤 4 Android（UniFFI 复用内核，V1.2 已升级为正式需求 §3.8，DR-009 转正）→ 步骤 5 macOS/iOS（远期）。
 
 ## 9. 待确认事项
 

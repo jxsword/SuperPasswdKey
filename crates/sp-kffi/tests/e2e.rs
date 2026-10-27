@@ -1,13 +1,26 @@
 //! sp-kffi 主机侧 e2e：FFI 面语义对齐 sp-kdbx 既有测试（对照 crates/sp-kdbx/tests）。
 //! 覆盖：create/open、find_entry 全字段读回、list_entry_summaries、entry_totp_now、
-//!       错密码 → Credentials、keyfile 双因子、参数硬下限（64MiB）拒绝。
+//!       错密码 → Credentials、keyfile 双因子、参数硬下限（64MiB）拒绝；
+//!       写入面：add/edit/save/attachments/lock + 自定义字段。
 
 use std::path::PathBuf;
 
-use sp_kffi::{create_db, open_db, FfiError, FfiKdfParams};
+use sp_kffi::{create_db, open_db, FfiCustomField, FfiEntryDraft, FfiError, FfiKdfParams};
 
 /// RFC 6238 附录 B 参考密钥（公开规范测试向量，与 make_spike_vault 一致）
 const RFC6238_SECRET_B32: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+
+fn draft(title: &str, password: &str) -> FfiEntryDraft {
+    FfiEntryDraft {
+        title: title.into(),
+        username: Some("demo-user".into()),
+        password: Some(password.into()),
+        url: Some("http://127.0.0.1:8080".into()),
+        notes: None,
+        otp: None,
+        custom_fields: vec![],
+    }
+}
 
 fn env_or(name: &str, default: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| default.to_string())
@@ -185,4 +198,166 @@ fn below_memory_floor_rejected() {
         other => panic!("expected Parameter, got {other:?}"),
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn mobile_default_params_dr010_interim() {
+    // DR-010 过渡默认：m=64MiB（红线 #6 硬下限）/ t=4 / p=4（终态=init 校准，移植后随 DR-010 终态更新）
+    let d = FfiKdfParams::default();
+    assert_eq!(d.memory_kib, 64 * 1024);
+    assert_eq!(d.iterations, 4);
+    assert_eq!(d.parallelism, 4);
+    // 默认值应通过 sp-core 校验并完整走通开库链路
+    let f = make_fixture("mobiledefault", d, None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db with mobile default");
+    assert!(!vault.list_entry_summaries().expect("list").is_empty());
+}
+
+#[test]
+fn write_path_add_edit_save_roundtrip() {
+    let f = make_fixture("write", FfiKdfParams::default(), None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db");
+
+    // add + 自定义字段 + 保存 + 重开读回
+    let mut d = draft("New Entry", "new-pass");
+    d.custom_fields = vec![FfiCustomField {
+        name: "api_key".into(),
+        value: "k-123".into(),
+        protected: true,
+    }];
+    vault.add_entry(d).expect("add_entry");
+    vault
+        .save(
+            f.db_path.to_str().unwrap().into(),
+            f.db_password.clone(),
+            None,
+        )
+        .expect("save");
+    vault.lock().expect("lock");
+
+    let vault2 = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("reopen");
+    let e = vault2.find_entry("New Entry".into()).expect("find new");
+    assert_eq!(e.password.as_deref(), Some("new-pass"));
+
+    // edit（history 语义由 sp-kdbx 维护）+ 保存 + 重开
+    vault2
+        .edit_entry("New Entry".into(), draft("New Entry", "edited-pass"))
+        .expect("edit_entry");
+    vault2
+        .save(
+            f.db_path.to_str().unwrap().into(),
+            f.db_password.clone(),
+            None,
+        )
+        .expect("save");
+    drop(vault2);
+
+    let vault3 = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("reopen 2");
+    let e = vault3.find_entry("New Entry".into()).expect("find edited");
+    assert_eq!(e.password.as_deref(), Some("edited-pass"));
+}
+
+#[test]
+fn attachments_roundtrip() {
+    let f = make_fixture("attach", FfiKdfParams::default(), None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db");
+    let payload = vec![1u8, 2, 3, 250, 251];
+    vault
+        .add_attachment("Demo Login".into(), "notes.bin".into(), payload.clone())
+        .expect("add_attachment");
+    vault
+        .save(
+            f.db_path.to_str().unwrap().into(),
+            f.db_password.clone(),
+            None,
+        )
+        .expect("save");
+    let got = vault
+        .get_attachment("Demo Login".into(), "notes.bin".into())
+        .expect("get_attachment");
+    assert_eq!(got, payload);
+    match vault.get_attachment("Demo Login".into(), "missing.bin".into()) {
+        Err(FfiError::NotFound { .. }) => {}
+        other => panic!("expected NotFound, got {other:?}"),
+    }
+}
+
+#[test]
+fn lock_blocks_subsequent_operations() {
+    let f = make_fixture("lock", FfiKdfParams::default(), None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db");
+    vault.lock().expect("lock");
+    match vault.list_entry_summaries() {
+        Err(FfiError::Format { msg }) => assert!(msg.contains("unavailable")),
+        other => panic!("expected Format(unavailable), got {other:?}"),
+    }
+    // 二次 lock：worker 已退出，发送失败 → 同样的 unavailable 语义
+    match vault.lock() {
+        Err(FfiError::Format { msg }) => assert!(msg.contains("unavailable")),
+        other => panic!("expected Format(unavailable), got {other:?}"),
+    }
+}
+
+#[test]
+fn invalid_draft_rejected_parameter() {
+    let f = make_fixture("baddraft", FfiKdfParams::default(), None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db");
+    // 空标题（sp-core 校验）
+    match vault.add_entry(draft("  ", "pw")) {
+        Err(FfiError::Parameter { .. }) => {}
+        other => panic!("expected Parameter, got {other:?}"),
+    }
+    // 非法 otp（非 otpauth://）
+    let mut d = draft("Bad Otp", "pw");
+    d.otp = Some("seed123".into());
+    match vault.add_entry(d) {
+        Err(FfiError::Parameter { .. }) => {}
+        other => panic!("expected Parameter, got {other:?}"),
+    }
+    // 保留名自定义字段
+    let mut d = draft("Reserved", "pw");
+    d.custom_fields = vec![FfiCustomField {
+        name: "Title".into(),
+        value: "x".into(),
+        protected: false,
+    }];
+    match vault.add_entry(d) {
+        Err(FfiError::Parameter { .. }) => {}
+        other => panic!("expected Parameter, got {other:?}"),
+    }
 }

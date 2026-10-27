@@ -1,10 +1,9 @@
-//! sp-kffi：UniFFI 绑定层（Android Spike，DR-002/DR-008）。
+//! sp-kffi：UniFFI 绑定层（Android，DR-002/DR-008/DR-009）。
 //!
-//! 最小导出面：create_db / open_db / find_entry / list_entry_summaries / entry_totp_now。
 //! 语义完全委托 sp-core + sp-kdbx，本 crate 不含业务逻辑与加密代码；
-//! 仅做类型桥接（SpError → FfiError、EntryModel → FfiEntry）。
+//! 仅做类型桥接（SpError → FfiError、EntryModel ↔ Ffi 类型）。
 //!
-//! 线程模型（spike 结构性结论，design_docs/13 详述）：
+//! 线程模型（design_docs/13 §2）：
 //! keepass_ng 的 `Database` 内部为 Rc/RefCell 树（!Send + !Sync），而 UniFFI 0.32
 //! 对导出对象强制 `Send + Sync`。解法 = **线程封闭 actor**：每个 Vault 拥有专用
 //! 工作线程，Database 仅在该线程内被触碰；方法调用经 channel 派发并阻塞等结果。
@@ -13,7 +12,7 @@
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 
-use sp_core::{CredentialFactors, KdfParams, SecureString, SpError};
+use sp_core::{CredentialFactors, EntryModel, KdfParams, SecureString, SpError};
 
 // ---------- FFI 类型面 ----------
 
@@ -26,8 +25,15 @@ pub struct FfiKdfParams {
 }
 
 impl Default for FfiKdfParams {
+    /// DR-010 过渡默认（终态=移动端 init 校准，移植 sp-core calibration.rs 后替换）：
+    /// m=64MiB 红线 #6 硬下限不动；t 8→4 使中端真机解锁 ~1.1–1.3s（实测基线 2.2–2.5s），
+    /// 满足 ≤2s 体验线；仅影响 Android 新建库（参数随库文件存储，旧库/互操作不受影响）。
     fn default() -> Self {
-        KdfParams::default().into()
+        FfiKdfParams {
+            memory_kib: 64 * 1024,
+            iterations: 4,
+            parallelism: 4,
+        }
     }
 }
 
@@ -51,7 +57,7 @@ impl From<FfiKdfParams> for KdfParams {
     }
 }
 
-/// 条目全文（含密码——仅经单条显式取回；JNI String 无法零化，风险记 design_docs/13）
+/// 条目全文（读回；含密码——仅经单条显式取回；JNI String 无法零化，风险 R13-1）
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct FfiEntry {
     pub title: String,
@@ -69,6 +75,26 @@ pub struct FfiEntrySummary {
     pub username: Option<String>,
     pub url: Option<String>,
     pub has_otp: bool,
+}
+
+/// 自定义字段（语义 = sp_core::CustomField；protected 的存储限制见 sp-kdbx 模块文档）
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiCustomField {
+    pub name: String,
+    pub value: String,
+    pub protected: bool,
+}
+
+/// 条目草稿（写入面：add/edit 共用；与 FfiEntry 读回面分离）
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiEntryDraft {
+    pub title: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub url: Option<String>,
+    pub notes: Option<String>,
+    pub otp: Option<String>,
+    pub custom_fields: Vec<FfiCustomField>,
 }
 
 /// 统一错误面（映射 sp_core::SpError 子集；凭据语义不细化以防侧信道，SP-F-107）
@@ -102,11 +128,11 @@ impl From<SpError> for FfiError {
 
 fn worker_unavailable() -> FfiError {
     FfiError::Format {
-        msg: "vault worker unavailable".into(),
+        msg: "vault worker unavailable (locked or dropped)".into(),
     }
 }
 
-fn ffi_entry(m: sp_core::EntryModel) -> FfiEntry {
+fn ffi_entry(m: EntryModel) -> FfiEntry {
     FfiEntry {
         title: m.title,
         username: m.username,
@@ -114,6 +140,26 @@ fn ffi_entry(m: sp_core::EntryModel) -> FfiEntry {
         url: m.url,
         notes: m.notes,
         otp: m.otp,
+    }
+}
+
+fn draft_model(d: FfiEntryDraft) -> EntryModel {
+    EntryModel {
+        title: d.title,
+        username: d.username,
+        password: d.password.map(zeroize::Zeroizing::new),
+        url: d.url,
+        notes: d.notes,
+        custom_fields: d
+            .custom_fields
+            .into_iter()
+            .map(|f| sp_core::CustomField {
+                name: f.name,
+                value: zeroize::Zeroizing::new(f.value),
+                protected: f.protected,
+            })
+            .collect(),
+        otp: d.otp,
     }
 }
 
@@ -170,9 +216,45 @@ pub fn open_db(
 type Res<T> = Sender<Result<T, FfiError>>;
 
 enum VaultCmd {
-    FindEntry { title: String, resp: Res<FfiEntry> },
-    ListSummaries { resp: Res<Vec<FfiEntrySummary>> },
-    TotpNow { title: String, resp: Res<String> },
+    FindEntry {
+        title: String,
+        resp: Res<FfiEntry>,
+    },
+    ListSummaries {
+        resp: Res<Vec<FfiEntrySummary>>,
+    },
+    TotpNow {
+        title: String,
+        resp: Res<String>,
+    },
+    AddEntry {
+        draft: FfiEntryDraft,
+        resp: Res<()>,
+    },
+    EditEntry {
+        title: String,
+        draft: FfiEntryDraft,
+        resp: Res<()>,
+    },
+    Save {
+        path: String,
+        factors: CredentialFactors,
+        resp: Res<()>,
+    },
+    AddAttachment {
+        title: String,
+        name: String,
+        data: Vec<u8>,
+        resp: Res<()>,
+    },
+    GetAttachment {
+        title: String,
+        name: String,
+        resp: Res<Vec<u8>>,
+    },
+    Close {
+        resp: Res<()>,
+    },
 }
 
 fn respond<T>(resp: Res<T>, r: Result<T, FfiError>) {
@@ -180,13 +262,14 @@ fn respond<T>(resp: Res<T>, r: Result<T, FfiError>) {
 }
 
 /// 工作线程主体：Database 全程封闭在本线程（满足 keepass_ng !Send 约束）。
+/// 凭据因子仅在 open/save 调用栈内存在，用后即 drop（zeroize）。
 fn vault_worker(
     cmd_rx: std::sync::mpsc::Receiver<VaultCmd>,
     path: String,
     f: CredentialFactors,
     opened: Res<()>,
 ) {
-    let db = match sp_kdbx::open_db(std::path::Path::new(&path), &f) {
+    let mut db = match sp_kdbx::open_db(std::path::Path::new(&path), &f) {
         Ok(db) => {
             let _ = opened.send(Ok(()));
             db
@@ -218,8 +301,42 @@ fn vault_worker(
             ),
             VaultCmd::TotpNow { title, resp } => respond(
                 resp,
-                sp_kdbx::entry_totp_now(&db, &title).map_err(Into::into),
+                sp_kdbx::entry_totp_now(&db, &title).map_err(FfiError::from),
             ),
+            VaultCmd::AddEntry { draft, resp } => respond(
+                resp,
+                sp_kdbx::add_entry(&mut db, &draft_model(draft)).map_err(FfiError::from),
+            ),
+            VaultCmd::EditEntry { title, draft, resp } => respond(
+                resp,
+                sp_kdbx::edit_entry(&mut db, &title, &draft_model(draft)).map_err(FfiError::from),
+            ),
+            VaultCmd::Save {
+                path,
+                factors,
+                resp,
+            } => respond(
+                resp,
+                sp_kdbx::save_atomic(&db, std::path::Path::new(&path), &factors)
+                    .map_err(FfiError::from),
+            ),
+            VaultCmd::AddAttachment {
+                title,
+                name,
+                data,
+                resp,
+            } => respond(
+                resp,
+                sp_kdbx::add_attachment(&mut db, &title, &name, &data).map_err(FfiError::from),
+            ),
+            VaultCmd::GetAttachment { title, name, resp } => respond(
+                resp,
+                sp_kdbx::get_attachment(&db, &title, &name).map_err(FfiError::from),
+            ),
+            VaultCmd::Close { resp } => {
+                respond(resp, Ok(()));
+                break; // db 在此 drop：凭据/派生材料随库释放（SP-F-802 锁库语义）
+            }
         }
     }
     // cmd_tx 全部句柄释放（Vault 被 Kotlin GC 回收/Drop）→ 线程退出，Database drop
@@ -249,6 +366,7 @@ impl Vault {
             .map_err(|_| worker_unavailable())?;
         rx.recv().map_err(|_| worker_unavailable())?
     }
+
     /// 列出条目摘要（不含密码，语义 = sp_kdbx::list_entry_summaries）
     pub fn list_entry_summaries(&self) -> Result<Vec<FfiEntrySummary>, FfiError> {
         let (tx, rx) = channel();
@@ -263,6 +381,88 @@ impl Vault {
         let (tx, rx) = channel();
         self.tx
             .send(VaultCmd::TotpNow { title, resp: tx })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 新增条目（语义 = sp_kdbx::add_entry；校验规则同 sp-core）
+    pub fn add_entry(&self, draft: FfiEntryDraft) -> Result<(), FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::AddEntry { draft, resp: tx })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 编辑条目（旧快照进 history，语义 = sp_kdbx::edit_entry）
+    pub fn edit_entry(&self, title: String, draft: FfiEntryDraft) -> Result<(), FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::EditEntry {
+                title,
+                draft,
+                resp: tx,
+            })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 原子保存（语义 = sp_kdbx::save_atomic；凭据由调用方再次提供，进程内传递不落盘）
+    pub fn save(
+        &self,
+        path: String,
+        password: String,
+        keyfile_path: Option<String>,
+    ) -> Result<(), FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::Save {
+                path,
+                factors: factors(password, keyfile_path),
+                resp: tx,
+            })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 添加附件（语义 = sp_kdbx::add_attachment；保存需另调 save）
+    pub fn add_attachment(
+        &self,
+        title: String,
+        name: String,
+        data: Vec<u8>,
+    ) -> Result<(), FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::AddAttachment {
+                title,
+                name,
+                data,
+                resp: tx,
+            })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 读取附件（语义 = sp_kdbx::get_attachment）
+    pub fn get_attachment(&self, title: String, name: String) -> Result<Vec<u8>, FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::GetAttachment {
+                title,
+                name,
+                resp: tx,
+            })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 显式锁库（SP-F-802）：工作线程 drop Database（凭据随 drop 零化）并退出。
+    /// 锁后任何操作返回 Format("vault worker unavailable")。
+    pub fn lock(&self) -> Result<(), FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::Close { resp: tx })
             .map_err(|_| worker_unavailable())?;
         rx.recv().map_err(|_| worker_unavailable())?
     }
