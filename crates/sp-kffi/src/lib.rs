@@ -211,6 +211,24 @@ pub fn open_db(
     Ok(Arc::new(Vault { tx: cmd_tx }))
 }
 
+/// URL 匹配打分（SP-F-706/803 单源语义）：对条目 URL 列表按页面 URL 打分，
+/// 返回按分数降序的条目索引（同分稳定）。page 或条目非法/不匹配则不出现在结果中。
+#[uniffi::export]
+pub fn rank_entry_urls(page_url: String, entry_urls: Vec<Option<String>>) -> Vec<u32> {
+    let refs: Vec<Option<&str>> = entry_urls.iter().map(|o| o.as_deref()).collect();
+    sp_core::match_url::rank(&page_url, &refs)
+        .into_iter()
+        .map(|i| i as u32)
+        .collect()
+}
+
+/// 移动端 KDF 校准（DR-010 终态）：m=64MiB/p=4 固定，t∈[2,8] 实测校准至 target_ms。
+/// 耗时数次 Argon2id 实测（每次 ~0.3–1s 量级），调用方应在后台线程执行。
+#[uniffi::export]
+pub fn calibrate_kdf(target_ms: u32) -> Result<FfiKdfParams, FfiError> {
+    Ok(sp_core::calibration::calibrate_mobile(u64::from(target_ms))?.into())
+}
+
 // ---------- actor 工作线程 ----------
 
 type Res<T> = Sender<Result<T, FfiError>>;

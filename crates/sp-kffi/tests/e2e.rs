@@ -361,3 +361,31 @@ fn invalid_draft_rejected_parameter() {
         other => panic!("expected Parameter, got {other:?}"),
     }
 }
+
+#[test]
+fn rank_entry_urls_matches_sp_f706_semantics() {
+    use sp_kffi::rank_entry_urls;
+    let urls = vec![
+        Some("https://other.org/a".into()),
+        Some("https://login.example.com/b".into()),
+        Some("https://example.com/z".into()),   // base domain
+        Some("https://evilexample.com".into()), // 子串误配拒绝
+        None,                                   // 无 url 跳过
+    ];
+    let v = rank_entry_urls("https://login.example.com/x".into(), urls);
+    assert_eq!(v, vec![1, 2]);
+    // 非 http(s) 页面永不匹配
+    assert!(rank_entry_urls("ftp://x".into(), vec![Some("https://x".into())]).is_empty());
+}
+
+#[test]
+fn calibrate_kdf_stays_in_dr010_bounds() {
+    use sp_kffi::calibrate_kdf;
+    // 极小目标 → t 触底 2；超大目标 → t 封顶 8；m 恒 64MiB
+    let lo = calibrate_kdf(1).expect("calibrate tiny");
+    assert_eq!(lo.memory_kib, 64 * 1024);
+    assert_eq!(lo.iterations, 2);
+    assert_eq!(lo.parallelism, 4);
+    let hi = calibrate_kdf(u32::MAX).expect("calibrate huge");
+    assert_eq!(hi.iterations, 8);
+}

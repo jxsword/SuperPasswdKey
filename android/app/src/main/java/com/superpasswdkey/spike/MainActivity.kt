@@ -5,6 +5,7 @@ import android.graphics.Typeface
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import uniffi.sp_kffi.FfiException
@@ -44,7 +45,21 @@ class MainActivity : Activity() {
             textSize = 13f
             typeface = Typeface.MONOSPACE
         }
-        setContentView(ScrollView(this).apply { addView(tv) })
+        val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        setContentView(ScrollView(this).apply { addView(column) })
+
+        // M1b 入口：演示登录页（Autofill 验收载体）+ 手动解锁
+        addButton(column, "打开演示登录页（Autofill）") {
+            startActivity(android.content.Intent(this, DemoLoginActivity::class.java))
+        }
+        addButton(column, "解锁会话") {
+            startActivity(android.content.Intent(this, UnlockActivity::class.java))
+        }
+        addButton(column, "锁定会话") {
+            VaultSession.lockNow()
+            android.widget.Toast.makeText(this, "已锁定", android.widget.Toast.LENGTH_SHORT).show()
+        }
+        column.addView(tv)
         try {
             run()
         } catch (t: Throwable) {
@@ -55,6 +70,15 @@ class MainActivity : Activity() {
             File(filesDir, "result.txt").writeText(lines.toString())
         } catch (_: Exception) {
         }
+    }
+
+    /** 极简入口按钮（spike 壳无布局资源依赖，运行时挂到纵向容器） */
+    private fun addButton(column: LinearLayout, label: String, onClick: () -> Unit) {
+        val btn = android.widget.Button(this).apply {
+            text = label
+            setOnClickListener { onClick() }
+        }
+        column.addView(btn)
     }
 
     private fun vmHwmKb(): Long =
@@ -69,6 +93,7 @@ class MainActivity : Activity() {
         val dbPassword = intent.getStringExtra("db_password")
         val entryPassword = intent.getStringExtra("entry_password")
         val entryUsername = intent.getStringExtra("entry_username") ?: "demo-user"
+        val entryUrl = intent.getStringExtra("entry_url") ?: "http://127.0.0.1:8080"
         if (dbPassword == null || entryPassword == null) {
             line("FAIL: missing intent extras db_password/entry_password")
             return
@@ -95,7 +120,7 @@ class MainActivity : Activity() {
         val e = vault.findEntry("Demo Login")
         check(e.username == entryUsername) { "username mismatch: ${e.username}" }
         check(e.password == entryPassword) { "password mismatch" }
-        check(e.url == "http://127.0.0.1:8080") { "url mismatch: ${e.url}" }
+        check(e.url == entryUrl) { "url mismatch: ${e.url}" }
         check(e.otp == null) { "otp should be null" }
         line("PASS: findEntry('Demo Login') 全字段读回一致")
 
@@ -141,6 +166,14 @@ class MainActivity : Activity() {
             line("PASS: openDb #${i + 2} (reopen) ${ms} ms; VmHWM $h kB")
         }
         line("== ALL E2E CHECKS PASSED ==")
+
+        // M1b 验证钩子：extras 存在时顺带解锁 VaultSession（供 Autofill 演示链路使用）
+        try {
+            VaultSession.unlock(fixture.absolutePath, dbPassword, null)
+            line("PASS: VaultSession unlocked (M1b autofill hook)")
+        } catch (t: Throwable) {
+            line("WARN: session unlock failed: ${t::class.simpleName}")
+        }
     }
 
     companion object {
