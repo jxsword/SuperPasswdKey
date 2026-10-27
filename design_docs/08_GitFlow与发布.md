@@ -50,4 +50,4 @@ Rust（rustup，工具链锁定）｜keepassxc（choco/winget，仅测试）｜�
 
 ## 5. 后续步骤衔接
 
-步骤 2（WSL）：同仓 clone 至 WSL，`cargo test` Linux GNU 目标 + 文件权限 0600 分支测试；CI 增加 ubuntu job（✅ v0.1.2-linux）。步骤 3（浏览器扩展）：native messaging host 复用 sp-core，设计见 design_docs/10/11/12（含 DR-006 会话与协议决策）。步骤 4（Android）：UniFFI 绑定 sp-core。
+步骤 2（WSL）：同仓 clone 至 WSL，`cargo test` Linux GNU 目标 + 文件权限 0600 分支测试；CI 增加 ubuntu job（✅ v0.1.2-linux）。步骤 3（浏览器扩展）：native messaging host 复用 sp-core，设计见 design_docs/10/11/12（含 DR-006 会话与协议决策）。步骤 4（Android spike，DR-008 时间盒）：UniFFI 绑定（crates/sp-kffi）+ 最小 Android 壳（android/）已完成——三项验收全过（Kotlin 绑定编译 / x86_64 模拟器 KDBX4 e2e / 64MiB Argon2id 1.0–1.1s 非真机），设计骨架与风险清单见 design_docs/13，结论见 docs/reviews/android_spike_结论报告_2026-10-27.md；转正与否待用户拍板（届时 DR-009），spike 不打 tag 不发布。

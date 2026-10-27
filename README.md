@@ -21,7 +21,11 @@ Local-first, zero-knowledge password/secret manager CLI with KDBX4 interoperabil
 
 - Requirements: Rust 1.99.1 (via `rust-toolchain.toml`), Node 22 + pnpm 11 (extension only), KeePassXC ≥2.7 (tests only).
 - Build: `cargo build --release` ｜ Test: `cargo test` ｜ Lint: `cargo clippy -- -D warnings`
-- Extension: `cd extension && pnpm install && pnpm build` ｜ Design docs: [design_docs/](design_docs/) (architecture, crypto scheme `09`, extension `10`-`12`, tests `07`, git flow `08`)
+- Extension: `cd extension && pnpm install && pnpm build` ｜ Design docs: [design_docs/](design_docs/) (architecture `00`, crypto scheme `09`, extension `10`-`12`, Android spike `13`, tests `07`, git flow `08`)
+
+## Android spike（实验性，DR-008，未发布）
+
+Rust 内核经 UniFFI（`crates/sp-kffi`）复用于 Android 的技术验证已完成：Kotlin 绑定编译、x86_64 模拟器 KDBX4 开库 e2e、64MiB Argon2id 实测（1.0–1.1s，非真机）全过。**仅为 spike，不提供任何发布物**；KDF 与内存实测数字为模拟器值，不代表真机。设计与结论：[design_docs/13](design_docs/13_Android_UniFFI.md) ｜ [结论报告](docs/reviews/android_spike_结论报告_2026-10-27.md) ｜ 构建步骤：[android/README.md](android/README.md)。
 
 ## Browser extension / 浏览器扩展（v0.2.0-ext）
 
