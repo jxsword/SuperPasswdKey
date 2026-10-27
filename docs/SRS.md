@@ -240,7 +240,7 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 条目模型：自定义字段天然扩展位（passkey/证书等未来类型）。
 - 导入器：解析器注册表设计（新增来源即插）。
 - 服务器轨（F6）：客户端侧 secrets 网关接口位（`sp read` 的后端抽象，v0.1 仅本地实现）。
-- 后续路线：步骤 2 WSL/Linux（✅ v0.1.2-linux）→ 步骤 3 浏览器扩展（native messaging + 本填充引擎，V1.1 已升级为正式需求 §3.7）→ 步骤 4 Android（UniFFI 复用内核）→ 步骤 5 macOS/iOS（远期）。
+- 后续路线：步骤 2 WSL/Linux（✅ v0.1.2-linux）→ 步骤 3 浏览器扩展（native messaging + 本填充引擎，V1.1 已升级为正式需求 §3.7）→ 步骤 4 Android（UniFFI 复用内核，✅ spike 完成/未发布，DR-008；转正待 DR-009）→ 步骤 5 macOS/iOS（远期）。
 
 ## 9. 待确认事项
 
