@@ -679,11 +679,23 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_sp_kffi_checksum_func_open_db(
     ): Int
+    external fun uniffi_sp_kffi_checksum_method_vault_add_attachment(
+    ): Int
+    external fun uniffi_sp_kffi_checksum_method_vault_add_entry(
+    ): Int
+    external fun uniffi_sp_kffi_checksum_method_vault_edit_entry(
+    ): Int
     external fun uniffi_sp_kffi_checksum_method_vault_entry_totp_now(
     ): Int
     external fun uniffi_sp_kffi_checksum_method_vault_find_entry(
     ): Int
+    external fun uniffi_sp_kffi_checksum_method_vault_get_attachment(
+    ): Int
     external fun uniffi_sp_kffi_checksum_method_vault_list_entry_summaries(
+    ): Int
+    external fun uniffi_sp_kffi_checksum_method_vault_lock(
+    ): Int
+    external fun uniffi_sp_kffi_checksum_method_vault_save(
     ): Int
     external fun ffi_sp_kffi_uniffi_contract_version(
     ): Int
@@ -709,12 +721,24 @@ internal object UniffiLib {
     ): Long
     external fun uniffi_sp_kffi_fn_free_vault(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_sp_kffi_fn_method_vault_add_attachment(`ptr`: Long,`title`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_sp_kffi_fn_method_vault_add_entry(`ptr`: Long,`draft`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_sp_kffi_fn_method_vault_edit_entry(`ptr`: Long,`title`: RustBuffer.ByValue,`draft`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_sp_kffi_fn_method_vault_entry_totp_now(`ptr`: Long,`title`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_sp_kffi_fn_method_vault_find_entry(`ptr`: Long,`title`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_sp_kffi_fn_method_vault_get_attachment(`ptr`: Long,`title`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_sp_kffi_fn_method_vault_list_entry_summaries(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_sp_kffi_fn_method_vault_lock(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_sp_kffi_fn_method_vault_save(`ptr`: Long,`path`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`keyfilePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_sp_kffi_fn_func_create_db(`path`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`keyfilePath`: RustBuffer.ByValue,`params`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_sp_kffi_fn_func_open_db(`path`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`keyfilePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -844,13 +868,31 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_sp_kffi_checksum_func_open_db() and 0xFFFF) != 14707) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_sp_kffi_checksum_method_vault_add_attachment() and 0xFFFF) != 10453) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_sp_kffi_checksum_method_vault_add_entry() and 0xFFFF) != 59701) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_sp_kffi_checksum_method_vault_edit_entry() and 0xFFFF) != 55203) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_sp_kffi_checksum_method_vault_entry_totp_now() and 0xFFFF) != 45699) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_sp_kffi_checksum_method_vault_find_entry() and 0xFFFF) != 25731) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_sp_kffi_checksum_method_vault_get_attachment() and 0xFFFF) != 6355) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_sp_kffi_checksum_method_vault_list_entry_summaries() and 0xFFFF) != 5831) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_sp_kffi_checksum_method_vault_lock() and 0xFFFF) != 38875) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_sp_kffi_checksum_method_vault_save() and 0xFFFF) != 49494) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1113,6 +1155,25 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
     }
 }
 
+/**
+ * @suppress
+ */
+public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
+    override fun read(buf: ByteBuffer): ByteArray {
+        val len = buf.getInt()
+        val byteArr = ByteArray(len)
+        buf.get(byteArr)
+        return byteArr
+    }
+    override fun allocationSize(value: ByteArray): ULong {
+        return 4UL + value.size.toULong()
+    }
+    override fun write(value: ByteArray, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        buf.put(value)
+    }
+}
+
 
 // This template implements a class for working with a Rust struct via a handle
 // to the live Rust struct on the other side of the FFI.
@@ -1215,6 +1276,21 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
 public interface VaultInterface {
     
     /**
+     * 添加附件（语义 = sp_kdbx::add_attachment；保存需另调 save）
+     */
+    fun `addAttachment`(`title`: kotlin.String, `name`: kotlin.String, `data`: kotlin.ByteArray)
+    
+    /**
+     * 新增条目（语义 = sp_kdbx::add_entry；校验规则同 sp-core）
+     */
+    fun `addEntry`(`draft`: FfiEntryDraft)
+    
+    /**
+     * 编辑条目（旧快照进 history，语义 = sp_kdbx::edit_entry）
+     */
+    fun `editEntry`(`title`: kotlin.String, `draft`: FfiEntryDraft)
+    
+    /**
      * 生成条目当前 TOTP 码（语义 = sp_kdbx::entry_totp_now）
      */
     fun `entryTotpNow`(`title`: kotlin.String): kotlin.String
@@ -1225,9 +1301,25 @@ public interface VaultInterface {
     fun `findEntry`(`title`: kotlin.String): FfiEntry
     
     /**
+     * 读取附件（语义 = sp_kdbx::get_attachment）
+     */
+    fun `getAttachment`(`title`: kotlin.String, `name`: kotlin.String): kotlin.ByteArray
+    
+    /**
      * 列出条目摘要（不含密码，语义 = sp_kdbx::list_entry_summaries）
      */
     fun `listEntrySummaries`(): List<FfiEntrySummary>
+    
+    /**
+     * 显式锁库（SP-F-802）：工作线程 drop Database（凭据随 drop 零化）并退出。
+     * 锁后任何操作返回 Format("vault worker unavailable")。
+     */
+    fun `lock`()
+    
+    /**
+     * 原子保存（语义 = sp_kdbx::save_atomic；凭据由调用方再次提供，进程内传递不落盘）
+     */
+    fun `save`(`path`: kotlin.String, `password`: kotlin.String, `keyfilePath`: kotlin.String?)
     
     companion object
 }
@@ -1338,6 +1430,60 @@ open class Vault: Disposable, AutoCloseable, VaultInterface
 
     
     /**
+     * 添加附件（语义 = sp_kdbx::add_attachment；保存需另调 save）
+     */
+    @Throws(FfiException::class)override fun `addAttachment`(`title`: kotlin.String, `name`: kotlin.String, `data`: kotlin.ByteArray)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_sp_kffi_fn_method_vault_add_attachment(
+        it,
+        
+        FfiConverterString.lower(`title`),
+        FfiConverterString.lower(`name`),
+        FfiConverterByteArray.lower(`data`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * 新增条目（语义 = sp_kdbx::add_entry；校验规则同 sp-core）
+     */
+    @Throws(FfiException::class)override fun `addEntry`(`draft`: FfiEntryDraft)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_sp_kffi_fn_method_vault_add_entry(
+        it,
+        
+        FfiConverterTypeFfiEntryDraft.lower(`draft`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * 编辑条目（旧快照进 history，语义 = sp_kdbx::edit_entry）
+     */
+    @Throws(FfiException::class)override fun `editEntry`(`title`: kotlin.String, `draft`: FfiEntryDraft)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_sp_kffi_fn_method_vault_edit_entry(
+        it,
+        
+        FfiConverterString.lower(`title`),
+        FfiConverterTypeFfiEntryDraft.lower(`draft`),_status)
+}
+    }
+    
+    
+
+    
+    /**
      * 生成条目当前 TOTP 码（语义 = sp_kdbx::entry_totp_now）
      */
     @Throws(FfiException::class)override fun `entryTotpNow`(`title`: kotlin.String): kotlin.String {
@@ -1374,6 +1520,25 @@ open class Vault: Disposable, AutoCloseable, VaultInterface
 
     
     /**
+     * 读取附件（语义 = sp_kdbx::get_attachment）
+     */
+    @Throws(FfiException::class)override fun `getAttachment`(`title`: kotlin.String, `name`: kotlin.String): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_sp_kffi_fn_method_vault_get_attachment(
+        it,
+        
+        FfiConverterString.lower(`title`),
+        FfiConverterString.lower(`name`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * 列出条目摘要（不含密码，语义 = sp_kdbx::list_entry_summaries）
      */
     @Throws(FfiException::class)override fun `listEntrySummaries`(): List<FfiEntrySummary> {
@@ -1387,6 +1552,42 @@ open class Vault: Disposable, AutoCloseable, VaultInterface
     }
     )
     }
+    
+
+    
+    /**
+     * 显式锁库（SP-F-802）：工作线程 drop Database（凭据随 drop 零化）并退出。
+     * 锁后任何操作返回 Format("vault worker unavailable")。
+     */
+    @Throws(FfiException::class)override fun `lock`()
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_sp_kffi_fn_method_vault_lock(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * 原子保存（语义 = sp_kdbx::save_atomic；凭据由调用方再次提供，进程内传递不落盘）
+     */
+    @Throws(FfiException::class)override fun `save`(`path`: kotlin.String, `password`: kotlin.String, `keyfilePath`: kotlin.String?)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_sp_kffi_fn_method_vault_save(
+        it,
+        
+        FfiConverterString.lower(`path`),
+        FfiConverterString.lower(`password`),
+        FfiConverterOptionalString.lower(`keyfilePath`),_status)
+}
+    }
+    
     
 
     
@@ -1430,7 +1631,53 @@ public object FfiConverterTypeVault: FfiConverter<Vault, Long> {
 
 
 /**
- * 条目全文（含密码——仅经单条显式取回；JNI String 无法零化，风险记 design_docs/13）
+ * 自定义字段（语义 = sp_core::CustomField；protected 的存储限制见 sp-kdbx 模块文档）
+ */
+data class FfiCustomField (
+    var `name`: kotlin.String
+    , 
+    var `value`: kotlin.String
+    , 
+    var `protected`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiCustomField: FfiConverterRustBuffer<FfiCustomField> {
+    override fun read(buf: ByteBuffer): FfiCustomField {
+        return FfiCustomField(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiCustomField) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`value`) +
+            FfiConverterBoolean.allocationSize(value.`protected`)
+    )
+
+    override fun write(value: FfiCustomField, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`value`, buf)
+            FfiConverterBoolean.write(value.`protected`, buf)
+    }
+}
+
+
+
+/**
+ * 条目全文（读回；含密码——仅经单条显式取回；JNI String 无法零化，风险 R13-1）
  */
 data class FfiEntry (
     var `title`: kotlin.String
@@ -1485,6 +1732,72 @@ public object FfiConverterTypeFfiEntry: FfiConverterRustBuffer<FfiEntry> {
             FfiConverterOptionalString.write(value.`url`, buf)
             FfiConverterOptionalString.write(value.`notes`, buf)
             FfiConverterOptionalString.write(value.`otp`, buf)
+    }
+}
+
+
+
+/**
+ * 条目草稿（写入面：add/edit 共用；与 FfiEntry 读回面分离）
+ */
+data class FfiEntryDraft (
+    var `title`: kotlin.String
+    , 
+    var `username`: kotlin.String?
+    , 
+    var `password`: kotlin.String?
+    , 
+    var `url`: kotlin.String?
+    , 
+    var `notes`: kotlin.String?
+    , 
+    var `otp`: kotlin.String?
+    , 
+    var `customFields`: List<FfiCustomField>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiEntryDraft: FfiConverterRustBuffer<FfiEntryDraft> {
+    override fun read(buf: ByteBuffer): FfiEntryDraft {
+        return FfiEntryDraft(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterSequenceTypeFfiCustomField.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiEntryDraft) = (
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterOptionalString.allocationSize(value.`username`) +
+            FfiConverterOptionalString.allocationSize(value.`password`) +
+            FfiConverterOptionalString.allocationSize(value.`url`) +
+            FfiConverterOptionalString.allocationSize(value.`notes`) +
+            FfiConverterOptionalString.allocationSize(value.`otp`) +
+            FfiConverterSequenceTypeFfiCustomField.allocationSize(value.`customFields`)
+    )
+
+    override fun write(value: FfiEntryDraft, buf: ByteBuffer) {
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterOptionalString.write(value.`username`, buf)
+            FfiConverterOptionalString.write(value.`password`, buf)
+            FfiConverterOptionalString.write(value.`url`, buf)
+            FfiConverterOptionalString.write(value.`notes`, buf)
+            FfiConverterOptionalString.write(value.`otp`, buf)
+            FfiConverterSequenceTypeFfiCustomField.write(value.`customFields`, buf)
     }
 }
 
@@ -1756,6 +2069,34 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
         } else {
             buf.put(1)
             FfiConverterString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeFfiCustomField: FfiConverterRustBuffer<List<FfiCustomField>> {
+    override fun read(buf: ByteBuffer): List<FfiCustomField> {
+        val len = buf.getInt()
+        return List<FfiCustomField>(len) {
+            FfiConverterTypeFfiCustomField.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiCustomField>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiCustomField.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiCustomField>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiCustomField.write(it, buf)
         }
     }
 }

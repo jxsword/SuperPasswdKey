@@ -2,7 +2,7 @@
 
 - 状态：**v1.0（2026-10-27，Spike 转正，DR-009；SRS V1.2 SP-F-8xx 生效）**｜追溯：DR-002（内核复用承诺）、DR-008（spike 分流）、SP-N-301/302（KDF 实测回填）、SP-C-106（测试向量）
 - 实测报告：docs/reviews/android_spike_结论报告_2026-10-27.md（本骨架引用其数字，不重复展开）
-- 后续设计：M1 系统 Autofill 见 design_docs/14（待写）；Keystore/生物识别 backlog（独立 DR）
+- 后续设计：M1 系统 Autofill 见 design_docs/14（v0.1 骨架已建）；Keystore/生物识别 backlog（独立 DR）
 
 ## 1. 绑定边界（spike 实现面）
 
