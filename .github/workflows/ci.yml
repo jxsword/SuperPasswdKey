@@ -120,7 +120,10 @@ jobs:
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-linux-android,aarch64-linux-android
+          components: rustfmt, clippy
+
+      - name: Install Android targets (on the pinned toolchain)
+        run: rustup target add x86_64-linux-android aarch64-linux-android
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
