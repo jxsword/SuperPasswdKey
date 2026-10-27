@@ -34,7 +34,7 @@ class DemoWebActivity : Activity() {
                                 if (!VaultSession.isUnlocked && dbPassword != null) {
                                     try {
                                         VaultSession.unlock(
-                                            java.io.File(filesDir, "test_vault.kdbx").absolutePath,
+                                            VaultSession.vaultPath(filesDir).absolutePath,
                                             dbPassword,
                                             null,
                                         )
