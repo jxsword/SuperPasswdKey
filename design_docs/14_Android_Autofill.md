@@ -53,7 +53,7 @@ Autofill 请求 ──► VaultSession（未解锁?）──► UnlockActivity�
 
 ## 6. 里程碑拆分（M1 内部）
 
-1. **M1a**：match_url 抽取进 sp-core（重构 PR）+ FFI 面暴露 rank 匹配（或 Android 侧经绑定调用）→ 主机测试全绿。
-2. **M1b**：VaultSession + UnlockActivity + SpAutofillService 骨架 → 模拟器演示 App 填充链路。
-3. **M1c**：Chrome 真链路 + 真机验证包（KDF 复测 SP-N-301/302、Autofill 精度清单、后台行为）——**前置：用户提供真机**。
+1. **M1a** ✅（2026-10-27）：match_url 抽取进 sp-core（纯搬移 + 测试随迁，sp-nmhost 保留同路径 glob 再导出，`crate::match_url::xxx` 引用不变）；workspace 69 测试全绿。
+2. **M1b**：VaultSession + UnlockActivity + SpAutofillService 骨架 → 模拟器演示 App 填充链路；KDF 校准移植（DR-010 终态）。
+3. **M1c**：Chrome 真链路 + 真机验证包（KDF 复测 SP-N-301/302、Autofill 精度清单、后台行为）——KDF 真机基线已回填（android_真机安装测试方案 §7），Autofill 部分待 M1b。
 4. backlog：Autofill 保存场景（新密码入库）、宽匹配、Keystore/生物识别（独立 DR）。
