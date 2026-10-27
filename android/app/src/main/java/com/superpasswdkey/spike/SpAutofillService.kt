@@ -88,14 +88,13 @@ class SpAutofillService : AutofillService() {
         var debugCount = 0
         fun walk(node: AssistStructure.ViewNode) {
             if (node.webDomain != null && found == null) found = node.webDomain
-            if (debugCount < 12) {
-                val hints = node.autofillHints?.joinToString(",") ?: ""
-                if (node.webDomain != null || hints.isNotEmpty()) {
-                    Log.d(
-                        TAG,
-                        "node[${debugCount}] cls=${node.className} web=${node.webDomain} hints=[$hints]",
-                    )
-                }
+            if (debugCount < 30) {
+                Log.d(
+                    TAG,
+                    "node[${debugCount}] cls=${node.className} web=${node.webDomain} " +
+                        "hints=${node.autofillHints?.joinToString(",")} hint=${node.hint} " +
+                        "inputType=${node.inputType} pass=${node.inputType and android.text.InputType.TYPE_CLASS_TEXT != 0 && node.inputType and android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD != 0}",
+                )
                 debugCount++
             }
             for (i in 0 until node.childCount) walk(node.getChildAt(i))
