@@ -4,6 +4,8 @@
 > 粘贴为该会话的第一条消息即可。生成于 2026-10-27（Windows 会话，v0.2.0-ext 完成后，
 > DR-008 已定；**开发环境已部署完整**，部署报告见 docs/reviews/android_env_部署报告_2026-10-27.md）。
 
+```text
+
 ## 项目背景（自包含，无需外部上下文）
 - 本机仓库 = GitHub 私有仓 jxsword/SuperPasswdKey 的 clone，main 已含 v0.2.0-ext（CLI 全功能 + 浏览器扩展 F1：crates/sp-nmhost + extension/）
 - 项目：Rust 密码管理器（`sp` CLI），KDBX4 兼容（keepass_ng 0.11），Argon2id+双因子
@@ -47,3 +49,5 @@ rustup target list --installed | grep android
 - 机密不落 Android SharedPreferences/日志；Keystore 集成不在 spike 范围（backlog 单列）
 - 不做：iOS、服务器轨、多库、生物识别（后两者需独立 DR）
 - 任何 Mimosa 拦截：内容交用户手动落盘，不静默绕过
+
+```
