@@ -52,6 +52,9 @@ class MainActivity : Activity() {
         addButton(column, "打开演示登录页（Autofill）") {
             startActivity(android.content.Intent(this, DemoLoginActivity::class.java))
         }
+        addButton(column, "打开 WebView 演示页（webDomain）") {
+            startActivity(android.content.Intent(this, DemoWebActivity::class.java))
+        }
         addButton(column, "解锁会话") {
             startActivity(android.content.Intent(this, UnlockActivity::class.java))
         }

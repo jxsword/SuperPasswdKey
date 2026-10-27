@@ -4,6 +4,7 @@
     <application
         android:label="SP Spike"
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.Light">
 
         <activity
@@ -18,6 +19,11 @@
         <!-- SP-F-803：Autofill 演示登录页（M1b 验收载体） -->
         <activity
             android:name=".DemoLoginActivity"
+            android:exported="true" />
+
+        <!-- SP-F-803 M1c：webDomain 路径演示（WebView 指定真实源） -->
+        <activity
+            android:name=".DemoWebActivity"
             android:exported="true" />
 
         <!-- SP-F-802：解锁 Activity（Autofill 认证回路 + 手动解锁入口） -->
