@@ -1,7 +1,8 @@
 # SuperPasswdKey 步骤 4：Android（UniFFI 复用内核，Spike 先行）
 
 > 本文件是给 Windows 工作区 ZCode 会话的首次启动提示词。直接把下方代码块内容
-> 粘贴为该会话的第一条消息即可。生成于 2026-10-27（Windows 会话，步骤 3 / v0.2.0-ext 完成后，DR-008 已定）。
+> 粘贴为该会话的第一条消息即可。生成于 2026-10-27（Windows 会话，v0.2.0-ext 完成后，
+> DR-008 已定；**开发环境已部署完整**，部署报告见 docs/reviews/android_env_部署报告_2026-10-27.md）。
 
 ## 项目背景（自包含，无需外部上下文）
 - 本机仓库 = GitHub 私有仓 jxsword/SuperPasswdKey 的 clone，main 已含 v0.2.0-ext（CLI 全功能 + 浏览器扩展 F1：crates/sp-nmhost + extension/）
@@ -11,17 +12,27 @@
 - 必读：docs/SRS.md（§3.7 SP-F-7xx 为扩展已实现态；§2.3 非目标含 Android/iOS——本步骤是 Spike 不改非目标，转正需用户确认）、design_docs/00/01/02（内核 API 面）、09（§3 复杂度：Argon2id 移动端内存约束）、docs/decision_log.md（DR-001~008）、design_docs/08 §5
 - 开发模型：Git Flow（feature/android-spike 分支 → PR → develop）；Conventional Commits；设计不符先改 design_docs 再改码
 
-## 任务 0：环境核实与补齐（Windows + Android 工具链）
-1. rustc/cargo 1.99.1（Windows 侧已就绪）；`rustup target add aarch64-linux-android`（NDK 交叉目标）
-2. Android 工具链：Android Studio 或命令行（SDK + NDK r27+）、JDK 17+、模拟器（aarch64 系统镜像）；cargo-ndk（`cargo install cargo-ndk`）
-3. UniFFI：`uniffi` crate 版本选型（当前 0.29 系，核对与 keepass_ng 依赖树无冲突）
-4. 若 Mimosa 安全钩子拦截写入：把内容交用户手动落盘，不静默绕过（先例：spawner.rs、service-worker.ts）
+## 任务 0：环境核实（已部署完成，会话开始时快速自检）
+本机环境已由 2026-10-27 部署（报告：docs/reviews/android_env_部署报告_2026-10-27.md）。事实清单：
+- SDK 根：`E:\dev\android-sdk`（ANDROID_HOME/ANDROID_SDK_ROOT 用户级已设，PATH 含 platform-tools/emulator/cmdline-tools）
+- 组件：platform-tools 37.0.1｜platforms android-34/35/36｜build-tools 36.0.0｜**NDK r28.2.13676358**｜emulator 37.1.11｜system-images;android-34;google_apis;x86_64｜AVD `Pixel_7_API34` 已建
+- Rust：仓库工具链 1.99.1 与默认 stable 均已装 `aarch64-linux-android` + `x86_64-linux-android` target；cargo-ndk 4.1.2
+- **架构口径（重要）**：Windows x64 主机用 **x86_64 模拟器镜像**做 e2e；**aarch64 仅作交叉编译发布目标**（真机验证可选，非 spike 必需）
+- 已知约束：cargo-ndk 多 target 时 crate-type 须含 `cdylib`（bin 双 target 会报 "No usable artifacts"）
+
+会话开始自检（4 条只读命令，任何一条异常先修环境再开工）：
+```bash
+"$ANDROID_HOME/platform-tools/adb.exe" version | head -1
+"$ANDROID_HOME/ndk/28.2.13676358/ndk-build" --version 2>&1 | head -1 || ls "$ANDROID_HOME/ndk"
+rustup target list --installed | grep android
+"$ANDROID_HOME/emulator/emulator.exe" -list-avds
+```
 
 ## 任务 1：Spike 目标（时间盒 2–3 天，禁止超时扩scope）
 产出物（全部入库）：
-1. **UniFFI 绑定**：新 crate `crates/sp-kffi`（或 sp-core 内 uniffi feature）导出最小面：create_db/open_db/find_entry/list_entry_summaries/entry_totp_now；生成 Kotlin 绑定并在 **Android 模拟器（aarch64）** 上编译运行通过
-2. **e2e 验证**：Android 模拟器上用 Kotlin 代码打开步骤 3 的测试库 fixture（sp-test-only），断言条目读回一致（对照 crates/sp-kdbx/tests 已有语义）
-3. **KDF 实测**：64MiB Argon2id 在目标模拟器/真机的耗时与内存峰值（对标 ≤3s 分流线，写实测数字）
+1. **UniFFI 绑定**：新 crate `crates/sp-kffi`（或 sp-core 内 uniffi feature）导出最小面：create_db/open_db/find_entry/list_entry_summaries/entry_totp_now；生成 Kotlin 绑定并在 **x86_64 模拟器（Pixel_7_API34）** 上编译运行通过
+2. **e2e 验证**：模拟器上用 Kotlin 代码打开步骤 3 的测试库 fixture（sp-test-only，可用 `cargo run -p sp-nmhost --example make_test_vault` 生成），断言条目读回一致（对照 crates/sp-kdbx/tests 已有语义）；同时 `cargo ndk -t aarch64-linux-android build` 验证发布目标交叉编译通过
+3. **KDF 实测**：64MiB Argon2id 在模拟器/真机的耗时与内存峰值（对标 ≤3s 分流线，写实测数字；模拟器数字需标注"非真机"）
 4. **design_docs/13_Android_UniFFI.md 骨架**：绑定边界、生命周期（Database/Send/Sync 与 JNI 线程模型）、风险清单；SRS/追溯矩阵如需改动仅列"待转正清单"不动正文
 5. **结论与分流建议**：按 DR-008 分流标准逐项给出通过/受阻判定，交用户拍板后续主线（届时写 DR-009）
 
