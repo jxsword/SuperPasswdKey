@@ -13,7 +13,7 @@
 | 对象面 | `Vault`（已解锁库句柄） | `find_entry` / `list_entry_summaries` / `entry_totp_now`，语义 = sp-kdbx 同名函数 |
 | 记录面 | `FfiEntry`（含密码）/ `FfiEntrySummary`（不含密码，SP-F-706 语义）/ `FfiKdfParams` | 摘要面与桌面扩展响应面同构：密码/TOTP 仅单条显式取回 |
 | 错误面 | `FfiError`（Credentials/NotFound/Format/Io/Parameter）→ Kotlin `FfiException.*` sealed 类 | 凭据语义不细化（SP-F-107）；映射表见 sp-kffi/src/lib.rs |
-| Android 壳 | `android/`（Gradle 8.13 + AGP 8.7.3 + Kotlin 2.1.0 + JNA 5.17.0） | 最小 Activity，e2e 断言 + KDF 计时；生成绑定 sp_kffi.kt 随库提交 |
+| Android 壳 | `android/`（Gradle 8.13 + AGP 8.7.3 + Kotlin 2.1.0 + JNA 5.17.0） | M1 正式化壳层（design_docs/14）：MainActivity 入口 + UnlockActivity（解锁/首建）+ SpAutofillService + TestActivity（e2e harness，含校准链路与超时注入断言）+ SpApplication（进程级加载 cdylib）；生成绑定 sp_kffi.kt 随库提交 |
 
 ## 2. 生命周期与线程模型（spike 结构性结论）
 
