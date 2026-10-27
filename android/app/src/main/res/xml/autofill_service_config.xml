@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SP-F-803：Autofill 服务声明（design_docs/14 §2） -->
+<autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.superpasswdkey.spike.MainActivity" />

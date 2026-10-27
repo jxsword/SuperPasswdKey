@@ -62,6 +62,52 @@ pub fn calibrate(target_ms: u64) -> Result<KdfParams, SpError> {
     Ok(candidate)
 }
 
+// ---------- 移动端校准（DR-010 终态：m/p 固定，沿迭代轴 t∈[MOBILE_T_MIN, MOBILE_T_MAX]） ----------
+//
+// 与桌面 calibrate 的差异：桌面沿内存轴外推（m 从 64MiB 上调）；
+// 移动端内存峰值受 LMK/低内存设备约束（design_docs/09§3），m 恒为 64MiB 硬下限、p=4，
+// 仅调 t。目标 ~1s（KeePassXC 官方口径；用户定稿解锁体验线 ≤2s，DR-010）。
+
+pub const MOBILE_T_MIN: u32 = 2;
+pub const MOBILE_T_MAX: u32 = 8;
+pub const MOBILE_PARALLELISM: u32 = 4;
+pub const MOBILE_TARGET_MS: u64 = 1000;
+
+/// 移动端校准：以 t=MOBILE_T_MIN 起步实测（内存即硬下限，外推空间只可能在 t 轴向），
+/// 线性外推 t 至 target_ms，钳制 [MOBILE_T_MIN, MOBILE_T_MAX]，二次实测验证。
+/// 返回参数保证通过 validate()。
+pub fn calibrate_mobile(target_ms: u64) -> Result<KdfParams, SpError> {
+    let base = KdfParams {
+        memory_kib: crate::keypolicy::MIN_MEMORY_KIB,
+        iterations: MOBILE_T_MIN,
+        parallelism: MOBILE_PARALLELISM,
+    };
+    let measured = measure(&base)?;
+    let t = if measured == 0 {
+        MOBILE_T_MIN
+    } else {
+        let projected = (MOBILE_T_MIN as f64 * target_ms as f64 / measured as f64).round() as u32;
+        projected.clamp(MOBILE_T_MIN, MOBILE_T_MAX)
+    };
+    let mut candidate = KdfParams {
+        memory_kib: crate::keypolicy::MIN_MEMORY_KIB,
+        iterations: t,
+        parallelism: MOBILE_PARALLELISM,
+    };
+    candidate.validate()?;
+    // 二次实测：偏差 >30% 再修正一轮（钳制不变）
+    let m2 = measure(&candidate)?;
+    if m2 > 0 {
+        let ratio = m2 as f64 / target_ms as f64;
+        if !(0.7..=1.3).contains(&ratio) {
+            let refined = (t as f64 / ratio).round() as u32;
+            candidate.iterations = refined.clamp(MOBILE_T_MIN, MOBILE_T_MAX);
+            candidate.validate()?;
+        }
+    }
+    Ok(candidate)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,5 +118,24 @@ mod tests {
         let p = calibrate(50).expect("calibrate");
         p.validate().expect("params valid");
         assert!(p.memory_kib >= crate::keypolicy::MIN_MEMORY_KIB);
+    }
+
+    /// 移动端校准：m 恒为硬下限、p=4、t 落在 [2,8]；目标极小 → t 触底
+    #[test]
+    fn calibrate_mobile_clamps_to_bounds() {
+        let p = calibrate_mobile(1).expect("calibrate_mobile tiny target");
+        assert_eq!(p.memory_kib, crate::keypolicy::MIN_MEMORY_KIB);
+        assert_eq!(p.parallelism, MOBILE_PARALLELISM);
+        assert_eq!(
+            p.iterations, MOBILE_T_MIN,
+            "tiny target should clamp to floor"
+        );
+        p.validate().expect("params valid");
+
+        let p2 = calibrate_mobile(u64::MAX / 2).expect("calibrate_mobile huge target");
+        assert_eq!(
+            p2.iterations, MOBILE_T_MAX,
+            "huge target should clamp to cap"
+        );
     }
 }

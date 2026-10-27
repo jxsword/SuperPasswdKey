@@ -3,6 +3,7 @@
 //!   SP_TEST_DB_PASSWORD      库口令（必填）
 //!   SP_TEST_ENTRY_PASSWORD   条目密码值（必填）
 //!   SP_TEST_ENTRY_USERNAME   条目用户名（默认 demo-user）
+//!   SP_TEST_ENTRY_URL        条目 url（默认 http://127.0.0.1:8080；Autofill 演示传应用包名做裸 host 匹配）
 //!   SP_TEST_KEYFILE          可选：keyfile 输出路径（设置则生成 keyfile 并启用双因子）
 //! 用法：cargo run -p sp-kffi --example make_spike_vault -- <kdbx路径>
 //! 产出：两个条目——"Demo Login"（基础断言面）与 "Demo OTP"（RFC 6238 参考密钥，TOTP 面）。
@@ -23,6 +24,8 @@ fn main() {
     let db_password = std::env::var("SP_TEST_DB_PASSWORD").expect("SP_TEST_DB_PASSWORD");
     let entry_password = std::env::var("SP_TEST_ENTRY_PASSWORD").expect("SP_TEST_ENTRY_PASSWORD");
     let username = std::env::var("SP_TEST_ENTRY_USERNAME").unwrap_or_else(|_| "demo-user".into());
+    let entry_url =
+        std::env::var("SP_TEST_ENTRY_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".into());
 
     let keyfile = std::env::var("SP_TEST_KEYFILE").ok().map(PathBuf::from);
     if let Some(kf) = &keyfile {
@@ -40,7 +43,7 @@ fn main() {
             title: "Demo Login".into(),
             username: Some(username),
             password: Some(Zeroizing::new(entry_password)),
-            url: Some("http://127.0.0.1:8080".into()),
+            url: Some(entry_url),
             ..Default::default()
         },
     )

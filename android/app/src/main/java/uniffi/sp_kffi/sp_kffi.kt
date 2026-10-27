@@ -675,9 +675,13 @@ internal object IntegrityCheckingUniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+    external fun uniffi_sp_kffi_checksum_func_calibrate_kdf(
+    ): Int
     external fun uniffi_sp_kffi_checksum_func_create_db(
     ): Int
     external fun uniffi_sp_kffi_checksum_func_open_db(
+    ): Int
+    external fun uniffi_sp_kffi_checksum_func_rank_entry_urls(
     ): Int
     external fun uniffi_sp_kffi_checksum_method_vault_add_attachment(
     ): Int
@@ -739,10 +743,14 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_sp_kffi_fn_method_vault_save(`ptr`: Long,`path`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`keyfilePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_sp_kffi_fn_func_calibrate_kdf(`targetMs`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_sp_kffi_fn_func_create_db(`path`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`keyfilePath`: RustBuffer.ByValue,`params`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_sp_kffi_fn_func_open_db(`path`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`keyfilePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
+    external fun uniffi_sp_kffi_fn_func_rank_entry_urls(`pageUrl`: RustBuffer.ByValue,`entryUrls`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun ffi_sp_kffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun ffi_sp_kffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -862,10 +870,16 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if ((lib.uniffi_sp_kffi_checksum_func_calibrate_kdf() and 0xFFFF) != 58685) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_sp_kffi_checksum_func_create_db() and 0xFFFF) != 42760) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_sp_kffi_checksum_func_open_db() and 0xFFFF) != 14707) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_sp_kffi_checksum_func_rank_entry_urls() and 0xFFFF) != 19239) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_sp_kffi_checksum_method_vault_add_attachment() and 0xFFFF) != 10453) {
@@ -2079,6 +2093,34 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
 /**
  * @suppress
  */
+public object FfiConverterSequenceUInt: FfiConverterRustBuffer<List<kotlin.UInt>> {
+    override fun read(buf: ByteBuffer): List<kotlin.UInt> {
+        val len = buf.getInt()
+        return List<kotlin.UInt>(len) {
+            FfiConverterUInt.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.UInt>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterUInt.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.UInt>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterUInt.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeFfiCustomField: FfiConverterRustBuffer<List<FfiCustomField>> {
     override fun read(buf: ByteBuffer): List<FfiCustomField> {
         val len = buf.getInt()
@@ -2128,6 +2170,50 @@ public object FfiConverterSequenceTypeFfiEntrySummary: FfiConverterRustBuffer<Li
         }
     }
 }
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceOptionalString: FfiConverterRustBuffer<List<kotlin.String?>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String?> {
+        val len = buf.getInt()
+        return List<kotlin.String?>(len) {
+            FfiConverterOptionalString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String?>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterOptionalString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String?>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterOptionalString.write(it, buf)
+        }
+    }
+}
+        /**
+         * 移动端 KDF 校准（DR-010 终态）：m=64MiB/p=4 固定，t∈[2,8] 实测校准至 target_ms。
+         * 耗时数次 Argon2id 实测（每次 ~0.3–1s 量级），调用方应在后台线程执行。
+         */
+    @Throws(FfiException::class) fun `calibrateKdf`(`targetMs`: kotlin.UInt): FfiKdfParams {
+            return FfiConverterTypeFfiKdfParams.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_sp_kffi_fn_func_calibrate_kdf(
+    
+        
+        FfiConverterUInt.lower(`targetMs`),_status)
+}
+    )
+    }
+    
+
         /**
          * 创建 KDBX4 库（语义 = sp_kdbx::create_db；一次性操作，不经 actor）
          */
@@ -2157,6 +2243,22 @@ public object FfiConverterSequenceTypeFfiEntrySummary: FfiConverterRustBuffer<Li
         FfiConverterString.lower(`path`),
         FfiConverterString.lower(`password`),
         FfiConverterOptionalString.lower(`keyfilePath`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * URL 匹配打分（SP-F-706/803 单源语义）：对条目 URL 列表按页面 URL 打分，
+         * 返回按分数降序的条目索引（同分稳定）。page 或条目非法/不匹配则不出现在结果中。
+         */ fun `rankEntryUrls`(`pageUrl`: kotlin.String, `entryUrls`: List<kotlin.String?>): List<kotlin.UInt> {
+            return FfiConverterSequenceUInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_sp_kffi_fn_func_rank_entry_urls(
+    
+        
+        FfiConverterString.lower(`pageUrl`),
+        FfiConverterSequenceOptionalString.lower(`entryUrls`),_status)
 }
     )
     }
