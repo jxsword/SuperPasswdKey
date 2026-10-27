@@ -47,7 +47,7 @@
 1. ✅ SRS §2.3 非目标移除 Android + §3.8 SP-F-8xx（V1.2）；追溯矩阵补 SP-F-801~804（2026-10-27）。
 2. ✅ 追溯矩阵补 Android 行（DR-002 承诺闭环记录于 DR-009；SP-N-301/302 真机回填仍待真机）。
 3. CI：Android 交叉编译 job（cargo-ndk x86_64+aarch64）+ 绑定漂移检查 + （可选）模拟器 e2e job。**M1 执行中。**
-4. KDF 参数策略：移动端默认值（64MiB/t/p 组合在真机校准，SP-N-302）+ 校准入口是否暴露给 UI。**真机回填完成（2026-10-27，骁龙 8s Gen 3：2.2–2.5s 贴 ≤3s 线）→ 建议移动端默认降 t=4/p=4，定稿待 DR-010。**
+4. KDF 参数策略：**DR-010 已定稿**——终态=移动端 init 校准（t∈[2,8]/m=64MiB/p=4，目标 ~1s，移植 sp-core calibration.rs）；过渡=FFI 默认 t=4/p=4（≤2s 线，仅影响新建库）；校准下限 t=2 高于 OWASP 最低。**校准移植为 M1b 任务。**
 5. FFI 面扩容评估：add/edit/save/attachments（桌面已实现，绑定层纯增量）。**M1 执行中。**
 6. 真机验证（KDF 数字、Autofill 精度、后台行为）。**KDF 真机回填完成（2026-10-27，Redmi Turbo 3/骁龙 8s Gen 3，见 android_真机安装测试方案 §7）；Autofill 精度待 M1b。**
 

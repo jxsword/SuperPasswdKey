@@ -25,8 +25,15 @@ pub struct FfiKdfParams {
 }
 
 impl Default for FfiKdfParams {
+    /// DR-010 过渡默认（终态=移动端 init 校准，移植 sp-core calibration.rs 后替换）：
+    /// m=64MiB 红线 #6 硬下限不动；t 8→4 使中端真机解锁 ~1.1–1.3s（实测基线 2.2–2.5s），
+    /// 满足 ≤2s 体验线；仅影响 Android 新建库（参数随库文件存储，旧库/互操作不受影响）。
     fn default() -> Self {
-        KdfParams::default().into()
+        FfiKdfParams {
+            memory_kib: 64 * 1024,
+            iterations: 4,
+            parallelism: 4,
+        }
     }
 }
 

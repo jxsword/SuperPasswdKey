@@ -201,6 +201,24 @@ fn below_memory_floor_rejected() {
 }
 
 #[test]
+fn mobile_default_params_dr010_interim() {
+    // DR-010 过渡默认：m=64MiB（红线 #6 硬下限）/ t=4 / p=4（终态=init 校准，移植后随 DR-010 终态更新）
+    let d = FfiKdfParams::default();
+    assert_eq!(d.memory_kib, 64 * 1024);
+    assert_eq!(d.iterations, 4);
+    assert_eq!(d.parallelism, 4);
+    // 默认值应通过 sp-core 校验并完整走通开库链路
+    let f = make_fixture("mobiledefault", d, None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db with mobile default");
+    assert!(!vault.list_entry_summaries().expect("list").is_empty());
+}
+
+#[test]
 fn write_path_add_edit_save_roundtrip() {
     let f = make_fixture("write", FfiKdfParams::default(), None);
     let vault = open_db(
