@@ -195,7 +195,9 @@ object FormMatcher {
         return builder.build()
     }
 
-    /** 锁定态：构造仅含认证回路的响应（UnlockActivity 解锁后回填） */
+    /** 锁定态：构造仅含认证回路的响应（UnlockActivity 解锁后回填）。
+     *  API 33+ 强制 authentication 与 presentation 同时非空（三参 null presentation 会
+     *  IllegalArgumentException——M1 正式化回归实测发现并修复），此处复用 dataset 条目样式 */
     fun buildAuthResponse(
         appContext: android.content.Context,
         usernameId: AutofillId,
@@ -211,8 +213,12 @@ object FormMatcher {
             appContext, 0, authIntent,
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val presentation = RemoteViews(appContext.packageName, R.layout.dataset_item).apply {
+            setTextViewText(R.id.dataset_title, "SuperPasswdKey")
+            setTextViewText(R.id.dataset_username, "点击解锁库后填充")
+        }
         return FillResponse.Builder()
-            .setAuthentication(arrayOf(usernameId, passwordId), pending.intentSender, null as android.widget.RemoteViews?)
+            .setAuthentication(arrayOf(usernameId, passwordId), pending.intentSender, presentation)
             .build()
     }
 }
