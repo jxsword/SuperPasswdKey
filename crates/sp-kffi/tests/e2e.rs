@@ -201,8 +201,9 @@ fn below_memory_floor_rejected() {
 }
 
 #[test]
-fn mobile_default_params_dr010_interim() {
-    // DR-010 过渡默认：m=64MiB（红线 #6 硬下限）/ t=4 / p=4（终态=init 校准，移植后随 DR-010 终态更新）
+fn mobile_default_params_dr011_fallback() {
+    // DR-011：终态=新建库走 calibrate_kdf（m=64MiB/t∈[2,8]/p=4 校准至 ~1s）；
+    // FfiKdfParams::default（t=4/p=4）降级为"跳过校准"兜底（fixture/测试口径），数值不变
     let d = FfiKdfParams::default();
     assert_eq!(d.memory_kib, 64 * 1024);
     assert_eq!(d.iterations, 4);

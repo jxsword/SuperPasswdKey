@@ -79,3 +79,11 @@
 - 理由: 解密时间目标校准是行业主流口径（KeePassXC 官方用户指南建议 ~1s 解密时间；桌面 SP-N-302 已有同策略，一致性最好）；低端机自适应是 A/B 均不具备的能力。
 - 影响: sp-kffi 默认值（过渡）、M1b 校准移植任务、SP-N-302 真机口径闭环。参考依据（2026-10-27 实测可达）：Bitwarden 默认 32MiB/6 次/4 线程（bitwarden.com/help/kdf-algorithms，注明超出 OWASP 建议）；KeePassXC 用户指南"decryption time 滑标建议 1 秒"（keepassxc.org/docs）。
 - 记录时间 / 会话: 2026-10-27 / SuperPasswdKey 步骤4 spike 会话
+
+## DR-011 2026-10-28 移动端 KDF 终态切换落地：Android 首建默认走 calibrate_kdf [状态: 生效]
+- 背景: DR-010 预留的终态（init 校准 t∈[2,8]/m=64MiB/p=4，目标 ~1s）在步骤 5 M1 正式化中接入壳层；过渡默认 t=4/p=4 完成使命。
+- 选项与权衡: A(首建强制校准，失败即报错不静默兜底，选定——校准失败条件与建库失败同源，静默降级只会掩盖问题); B(校准失败静默回落 FfiKdfParams::default，弃用——用户无感知得到非校准库，违背校准初衷); C(维持过渡默认不再校准，弃用——低端机无自适应能力，DR-010 已否决)。
+- 结论: VaultSession.createVault = calibrate_kdf(1000) → create_db(校准参数) → unlock；FfiKdfParams::default（t=4/p=4）降级为"跳过校准"兜底（fixture/测试口径）；校准参数随 KDBX4 头存储，无需另行持久化。
+- 理由: 引用 DR-010（终态选项 C）、真机数据（Redmi Turbo 3：t=8/p=4 解锁 2.2–2.5s 超线；HyperOS 夜间降频 8.2–18.3s 方法论发现）、本任务模拟器实测（校准建链路 3.6–3.7s；快机 t 触底=2 符合预期；建库后 UI 回显 m=64MiB/t=2/p=4）。
+- 影响: sp-kffi FfiKdfParams::default 注释与 e2e 测试语义（mobile_default_params_dr011_fallback）、android VaultSession.createVault、UnlockActivity 首建模式、TestActivity init_vault 断言；SP-N-302 移动端口径闭环。
+- 记录时间 / 会话: 2026-10-28 / SuperPasswdKey 步骤5 M1 正式化会话
