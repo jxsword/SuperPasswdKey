@@ -1,0 +1,21 @@
+[package]
+name = "sp-kffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SuperPasswdKey UniFFI bindings (Android spike, DR-008) - minimal surface over sp-core/sp-kdbx"
+
+[lib]
+# cdylib: Android .so；lib: 供 uniffi-bindgen bin 与本机测试复用
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+sp-core.workspace = true
+sp-kdbx.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+uniffi = { version = "0.32", features = ["cli"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"

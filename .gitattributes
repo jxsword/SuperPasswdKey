@@ -8,6 +8,8 @@
 *.yaml text eol=lf
 *.svg text eol=lf
 *.ps1 text eol=lf
+# Windows 批处理保持 CRLF（cmd 对 LF 有兼容坑；gradle wrapper 生成即 CRLF）
+*.bat text eol=crlf
 # 二进制例外
 *.png binary
 *.svg-files binary

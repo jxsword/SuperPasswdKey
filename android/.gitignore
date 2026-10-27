@@ -1,0 +1,11 @@
+# Gradle
+.gradle/
+build/
+local.properties
+
+# 交叉编译产物（构建步骤见 README：cargo ndk → 复制）
+app/src/main/jniLibs/**/*.so
+
+# IDE
+.idea/
+*.iml
