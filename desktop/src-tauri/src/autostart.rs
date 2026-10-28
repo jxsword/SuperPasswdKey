@@ -62,24 +62,29 @@ pub fn reconcile(enable: bool, exe_path: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    const TEST_VALUE_NAME: &str = "SuperPasswdKeySelfTest";
+    /// 每测试线程独立值名（cargo test 默认并行——共享值名会互相踩，CI 实测翻车）
+    fn test_value_name() -> String {
+        format!("SuperPasswdKeySelfTest_{:?}", std::thread::current().id())
+    }
 
     /// 用独立值名走真实 API roundtrip（写 → 查 → 幂等删 → 查），结束清场。
     /// 仅写 HKCU 当前用户 Run 键的测试值，不触碰生产值名，无系统面影响。
     #[test]
     fn registry_roundtrip_with_dedicated_value_name() {
+        let name = test_value_name();
         let exe = r"C:\Program Files\SuperPasswdKey\sp-desktop.exe";
-        set_named(TEST_VALUE_NAME, true, exe).expect("enable");
-        let got = query_named(TEST_VALUE_NAME).expect("query");
+        set_named(&name, true, exe).expect("enable");
+        let got = query_named(&name).expect("query");
         assert_eq!(got.as_deref(), Some(format!("\"{exe}\"").as_str()));
 
-        set_named(TEST_VALUE_NAME, false, exe).expect("disable");
-        assert_eq!(query_named(TEST_VALUE_NAME).expect("query"), None);
+        set_named(&name, false, exe).expect("disable");
+        assert_eq!(query_named(&name).expect("query"), None);
     }
 
     #[test]
     fn set_false_without_existing_value_is_ok() {
-        set_named(TEST_VALUE_NAME, false, r"C:\anywhere.exe").expect("idempotent delete");
-        assert_eq!(query_named(TEST_VALUE_NAME).expect("query"), None);
+        let name = test_value_name();
+        set_named(&name, false, r"C:\anywhere.exe").expect("idempotent delete");
+        assert_eq!(query_named(&name).expect("query"), None);
     }
 }
