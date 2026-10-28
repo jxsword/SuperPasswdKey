@@ -1,11 +1,16 @@
 //! 动作处理（SP-F-702，design_docs/11 §3）：payload → data 映射。
 //! 纪律：不提供任何"导出全库/全字段枚举"动作；密码/TOTP 仅 sp.get-secret 单条显式取回；
 //! 每个成功请求刷新空闲计时；机密值不进错误链。
+//!
+//! 会话实现经 `NmActionSession` trait 注入（step7 桌面单进程嵌入复用同一分发纪律，
+//! design_docs/15）；锁定语义由实现方保证——锁定态机密操作返回 Err(locked)。
+
+use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
 use crate::match_url;
-use crate::session::{Session, DEFAULT_SESSION_TIMEOUT_SECS};
+use crate::session::DEFAULT_SESSION_TIMEOUT_SECS;
 
 #[derive(Debug)]
 pub struct ActionError {
@@ -14,20 +19,45 @@ pub struct ActionError {
 }
 
 impl ActionError {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
         }
     }
 
-    fn bad_request(msg: impl Into<String>) -> Self {
+    pub fn bad_request(msg: impl Into<String>) -> Self {
         Self::new("badrequest", msg)
     }
 
-    fn locked() -> Self {
+    pub fn locked() -> Self {
         Self::new("locked", "database is locked")
     }
+}
+
+/// 条目摘要（不含密码/TOTP；get-logins 匹配面）
+#[derive(Clone, Debug)]
+pub struct EntryDigest {
+    pub title: String,
+    pub username: Option<String>,
+    pub url: Option<String>,
+    pub has_otp: bool,
+}
+
+/// 动作分发与会话实现的解耦面：sp-nmhost 自带因子缓存会话与桌面 Vault actor 会话
+/// 共用一套动作语义（step7 任务 3，单源纪律：无全库导出、touch 于成功后统一执行）。
+pub trait NmActionSession {
+    fn is_locked(&self) -> bool;
+    fn db_path(&self) -> Option<PathBuf>;
+    fn session_timeout_secs(&self) -> u64;
+    /// 解锁（KDF 校验；失败不缓存任何材料）；返回条目数（status 展示用）
+    fn unlock(&self, password: &str) -> Result<usize, ActionError>;
+    fn lock(&self);
+    /// 全部条目摘要；锁定态 → Err(locked)
+    fn entry_summaries(&self) -> Result<Vec<EntryDigest>, ActionError>;
+    /// 单条字段显式取回（field 白名单由 handle 校验后才进入实现）；无值 → Err(notfound)
+    fn entry_secret(&self, id: &str, field: &str) -> Result<String, ActionError>;
+    fn touch(&self);
 }
 
 impl From<sp_core::SpError> for ActionError {
@@ -43,7 +73,10 @@ impl From<sp_core::SpError> for ActionError {
 }
 
 /// 处理一个请求 payload，返回响应 data；错误统一由调用方包装为 error 响应。
-pub fn handle(session: &Session, payload: &Value) -> Result<Value, ActionError> {
+pub fn handle<S: NmActionSession + ?Sized>(
+    session: &S,
+    payload: &Value,
+) -> Result<Value, ActionError> {
     let action = payload
         .get("action")
         .and_then(Value::as_str)
@@ -57,7 +90,7 @@ pub fn handle(session: &Session, payload: &Value) -> Result<Value, ActionError> 
             json!({
                 "locked": session.is_locked(),
                 "dbPath": path.as_ref().map(|p| p.display().to_string()),
-                "sessionTimeoutSecs": session.timeout_secs(),
+                "sessionTimeoutSecs": session.session_timeout_secs(),
             })
         }
         "sp.unlock" => {
@@ -78,12 +111,7 @@ pub fn handle(session: &Session, payload: &Value) -> Result<Value, ActionError> 
                 .get("url")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ActionError::bad_request("missing url"))?;
-            let factors = session
-                .active_factors()
-                .map_err(|_| ActionError::locked())?;
-            let db_path = session.db_path().ok_or_else(ActionError::locked)?;
-            let db = sp_kdbx::open_db(&db_path, &factors)?;
-            let summaries = sp_kdbx::list_entry_summaries(&db);
+            let summaries = session.entry_summaries()?;
             let urls: Vec<Option<&str>> = summaries.iter().map(|s| s.url.as_deref()).collect();
             let matches: Vec<Value> = match_url::rank(url, &urls)
                 .into_iter()
@@ -109,19 +137,12 @@ pub fn handle(session: &Session, payload: &Value) -> Result<Value, ActionError> 
                 .get("field")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ActionError::bad_request("missing field"))?;
-            let factors = session
-                .active_factors()
-                .map_err(|_| ActionError::locked())?;
-            let db_path = session.db_path().ok_or_else(ActionError::locked)?;
-            let db = sp_kdbx::open_db(&db_path, &factors)?;
+            // 锁定优先于字段白名单（与既有错误优先级一致：锁定态一律 locked）
+            if session.is_locked() {
+                return Err(ActionError::locked());
+            }
             let value = match field {
-                "password" => sp_kdbx::find_entry(&db, id)?
-                    .password
-                    .map(|p| p.to_string())
-                    .ok_or_else(|| {
-                        ActionError::new("notfound", format!("entry '{id}' has no password"))
-                    })?,
-                "totp" => sp_kdbx::entry_totp_now(&db, id)?,
+                "password" | "totp" => session.entry_secret(id, field)?,
                 other => {
                     return Err(ActionError::bad_request(format!(
                         "unsupported field '{other}'"
@@ -154,6 +175,7 @@ pub fn default_session_timeout_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::Session;
     use serde_json::json;
     use sp_core::{CredentialFactors, KdfParams, SecureString};
     use std::path::PathBuf;

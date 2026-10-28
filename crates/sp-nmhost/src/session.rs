@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 use sp_core::{CredentialFactors, SecureString, SpError};
 
+use crate::actions::{ActionError, EntryDigest, NmActionSession};
+
 pub const DEFAULT_SESSION_TIMEOUT_SECS: u64 = 300;
 
 pub struct Session {
@@ -115,6 +117,67 @@ impl Session {
 
     fn inner_lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// 动作分发面实现：锁定/取值语义与 handle 的纪律对齐（锁定态机密操作 → locked；
+/// 无值 → notfound；机密值不进错误链）。
+impl NmActionSession for Session {
+    fn is_locked(&self) -> bool {
+        Session::is_locked(self)
+    }
+
+    fn db_path(&self) -> Option<PathBuf> {
+        Session::db_path(self)
+    }
+
+    fn session_timeout_secs(&self) -> u64 {
+        self.timeout_secs()
+    }
+
+    fn unlock(&self, password: &str) -> Result<usize, ActionError> {
+        Session::unlock(self, password).map_err(ActionError::from)
+    }
+
+    fn lock(&self) {
+        Session::lock(self)
+    }
+
+    fn entry_summaries(&self) -> Result<Vec<EntryDigest>, ActionError> {
+        let factors = self.active_factors().map_err(|_| ActionError::locked())?;
+        let db_path = self.db_path().ok_or_else(ActionError::locked)?;
+        let db = sp_kdbx::open_db(&db_path, &factors)?;
+        Ok(sp_kdbx::list_entry_summaries(&db)
+            .into_iter()
+            .map(|s| EntryDigest {
+                title: s.title,
+                username: s.username,
+                url: s.url,
+                has_otp: s.has_otp,
+            })
+            .collect())
+    }
+
+    fn entry_secret(&self, id: &str, field: &str) -> Result<String, ActionError> {
+        let factors = self.active_factors().map_err(|_| ActionError::locked())?;
+        let db_path = self.db_path().ok_or_else(ActionError::locked)?;
+        let db = sp_kdbx::open_db(&db_path, &factors)?;
+        match field {
+            "password" => sp_kdbx::find_entry(&db, id)?
+                .password
+                .map(|p| p.to_string())
+                .ok_or_else(|| {
+                    ActionError::new("notfound", format!("entry '{id}' has no password"))
+                }),
+            "totp" => Ok(sp_kdbx::entry_totp_now(&db, id)?),
+            other => Err(ActionError::bad_request(format!(
+                "unsupported field '{other}'"
+            ))),
+        }
+    }
+
+    fn touch(&self) {
+        Session::touch(self)
     }
 }
 
