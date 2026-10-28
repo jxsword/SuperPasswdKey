@@ -219,24 +219,13 @@ jobs:
             adb shell run-as com.superpasswdkey.spike mkdir -p files
             adb shell run-as com.superpasswdkey.spike cp /data/local/tmp/test_vault.kdbx files/vault.kdbx
             adb logcat -c
-            adb shell am start -n com.superpasswdkey.spike/.TestActivity \
-              --es db_password sp-test-only \
-              --es entry_password sp-test-entry \
-              --es entry_username demo-user \
-              --es entry_url https://com.superpasswdkey.spike \
-              --ez init_vault true --ei idle_timeout_ms 2000
-            for i in $(seq 1 36); do
-              if adb logcat -d -s SPIKE | grep -q "M1 E2E DONE"; then break; fi
-              sleep 5
-            done
+            adb shell am start -n com.superpasswdkey.spike/.TestActivity --es db_password sp-test-only --es entry_password sp-test-entry --es entry_username demo-user --es entry_url https://com.superpasswdkey.spike --ez init_vault true --ei idle_timeout_ms 2000
+            for i in $(seq 1 36); do if adb logcat -d -s SPIKE | grep -q "M1 E2E DONE"; then break; fi; sleep 5; done
             adb logcat -d -s SPIKE | tee e2e_logcat.txt
             grep -q "ALL E2E CHECKS PASSED" e2e_logcat.txt
             grep -q "PASS: createVault" e2e_logcat.txt
             grep -q "PASS: idle timeout lock" e2e_logcat.txt
-            if grep -qE "FAIL:|FATAL:|PENDING:" e2e_logcat.txt; then
-              echo "::error::e2e reported failure lines"
-              exit 1
-            fi
+            if grep -qE "FAIL:|FATAL:|PENDING:" e2e_logcat.txt; then echo "::error::e2e reported failure lines"; exit 1; fi
 
   extension:
     # 浏览器扩展构建门禁（SP-F-704/705；fuzz 不进 CI——design_docs/07）
