@@ -153,6 +153,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Free disk space (API 34 AVD userdata 需数 GB；否则 FATAL not enough space)
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          ls -dt /usr/local/lib/android/sdk/ndk/* 2>/dev/null | tail -n +2 | xargs -r sudo rm -rf
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          df -h /
+
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
 
@@ -202,6 +209,9 @@ jobs:
           api-level: 34
           target: google_apis
           arch: x86_64
+          disk-size: 2048M
+          cores: 4
+          emulator-boot-timeout: 900
           disable-animations: true
           script: |
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk

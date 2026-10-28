@@ -114,6 +114,11 @@
   arm 应用需 playstore 镜像（ndk_translation），Chrome 不兼容翻译层（SIGSEGV）
 - Git Bash 调 adb：路径参数加 MSYS_NO_PATHCONV=1；AVD 创建用 ANDROID_SDK_ROOT
   环境变量（--sdk_root 后置无效）
+- CI 模拟器（android-e2e job，步骤 5.5 实测）：hosted runner 装完工具链后 home 分区
+  余量不足以创建 API 34 userdata 分区（emulator FATAL "not enough space to create
+  userdata partition" 后空轮询到 boot-timeout）——必须先清 dotnet/ghc/CodeQL/旧 NDK
+  （保留最新一个，cargo-ndk 取最新）并 docker prune，且 android-emulator-runner 显式
+  disk-size=2048M + cores=4（默认 2 核有官方性能警告）
 - Chrome on 模拟器判离线：全局代理 10.0.2.2:10808（宿主代理开时）+ captive portal
   指向本地 gen_204（build/demo-site/server_204.py）；演示页服务器 build/demo-site/
   python http.server 8080 + adb reverse tcp:8080
