@@ -1,9 +1,9 @@
 # SuperPasswdKey 软件需求规格说明书（SRS）
 
-- 版本：**V1.2（2026-10-27，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009）**
+- 版本：**V1.3（2026-10-29，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1）**
 - 开发模型：瀑布（三轮审核：完整性→一致性→可执行性，记录见 `docs/reviews/srs_review.md`）
 - 需求来源：《docs/research/自研需求基线_SuperPasswdKey.md》（B1–B22）、决策记录 DR-001~005、2 天冲刺计划两轮复审修正
-- 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-F-8xx` Android（V1.2 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
+- 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-F-8xx` Android（V1.2 新增）｜`SP-F-9xx` 桌面 Windows（V1.3 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
 - 追溯：需求 ↔ 设计 ↔ 测试见 `docs/requirements_traceability_matrix.md`
 - 载体：本文档随代码入仓；范围 = 步骤 1（Windows CLI 全功能），后续步骤见 §10
 
@@ -44,6 +44,7 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 
 > V1.1 变更：浏览器自动填充（F1）已升级为正式需求（§3.7，SP-F-7xx），自本节非目标移除。
 > V1.2 变更：Android（UniFFI 内核复用 + M1 系统 Autofill）已升级为正式需求（§3.8，SP-F-8xx），自本节非目标移除（DR-009；spike 事实见 design_docs/13）。iOS 仍为非目标。
+> V1.3 变更：桌面 Windows 托盘壳（DR-013 批次 1）已升级为正式需求（§3.9，SP-F-9xx）。macOS 桌面仍为非目标（延后批次）。
 
 私有部署服务器（F6，后置）、iOS、多库（B19）、1pux 解析、跨进程会话缓存（注：native messaging host 进程内会话缓存不属"跨进程持久化"，见 DR-006）、Shell Plugins（B8）、Watchtower（B10）、passkey 管理（B11）、共享（B15）、密码健康检查（B22）、生物识别解锁（B13，Android Keystore/生物识别同属此 backlog）、应急包 PDF（B18）。以上仅做接口预留（§8）。
 
@@ -212,6 +213,36 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 **SP-F-805 Android Autofill 保存场景（P0，M2，DR-012 A1，confirmed）**
 - 描述：`AutofillService.onSaveRequest` 解析表单凭据值 → 保存确认页（显示 host/包名+用户名，密码不回显）→ 归属（webDomain/包名，同填充口径）→ 去重（同 host+用户名已存在则更新密码进 history，否则新增）→ `add_entry` + `save_session`（凭据因子随 open_db 留驻 sp-kffi actor 工作线程，锁库随 actor drop 零化；主密码内存驻留窗口=会话期，与 SP-F-804 审查口径一致并如实声明）。填充响应须携带 SaveInfo（用户名+密码双必填）声明保存意图。拒绝路径（系统"No thanks"/确认页取消）零写入。
 - 验收：模拟器演示链路（输入新凭据 → 系统保存建议 → 确认入库 → 重开库可读）；不保存路径行为正确（零写入）；e2e 断言（锁库后 save_session 拒绝；保存闭环重开读回）进 TestActivity；主机侧 cargo test 覆盖 save_session 语义。
+
+### 3.9 桌面 Windows（SP-F-9xx，V1.3 新增，来源 DR-013 批次 1）
+
+**SP-F-901 桌面托盘壳（P0，DR-013，confirmed）**
+- 描述：Tauri v2 托盘常驻（独立 workspace，仅 MSVC）；关窗=隐藏（进程与会话保留）；托盘菜单=显示解锁窗/立即锁定/设置/退出；静态前端零 Node 依赖。
+- 验收：`cargo tauri build` 产物托盘常驻、菜单四项行为正确；linux CI 不受影响（desktop 独立 workspace + 独立 job）。
+
+**SP-F-902 桌面解锁会话（P0，DR-013，红线#5，confirmed）**
+- 描述：**每次进程启动首次主密码**（解锁窗完成）；解锁 → 凭据因子随 open_db 留驻 sp-kffi actor（DR-012 A1 同源），锁库随 actor drop 清零；无生物、无落盘（不触碰红线 #5 定向豁免——该豁免仅对 Android 生物路径生效）。
+- 验收：解锁真实 kdbx；错误密码拒绝且会话保持锁定；锁库后因子清零（actor drop 语义，复用 sp-kffi 测试）。
+
+**SP-F-903 桌面双超时（P0，DR-013，confirmed）**
+- 描述：idle（机密操作 touch 刷新）与 absolute（自解锁时刻）双超时独立可配（默认 300s/1800s，对齐 DR-006 与用户 30min 示例口径）；任一到即锁库，再次使用须重新主密码；解锁态翻转即向后端/扩展通知。
+- 验收：可注入超时单测（idle=0 解锁后首次访问即锁）；NM 侧 `sp.event locked` 通知（watcher）；重新解锁重置双计时器。
+
+**SP-F-904 桌面设置持久化（P1，DR-013，confirmed）**
+- 描述：%APPDATA%/SuperPasswdKey/settings.json 仅存非机密（idle_ms/absolute_ms/autostart）；serde_json 读写；损坏/缺失回落默认值不崩；超时配置重启生效；自启开关即时生效。任何凭据不入设置文件。
+- 验收：roundtrip/损坏回落/BOM 兼容单测；改设置后 `settings.json` 落盘正确。
+
+**SP-F-905 桌面开机自启（P1，DR-013，confirmed）**
+- 描述：HKCU\Software\Microsoft\Windows\CurrentVersion\Run 用户级注册表值（免管理员，手写 registry）；值名 SuperPasswdKey=带引号 exe 全路径；settings.json autostart 字段为偏好单一来源，启动与保存时对账（手删注册表值重启即恢复，关偏好即清残留）。
+- 验收：独立值名注册表 roundtrip 单测；`reg query` 可验证；关闭自启后注册表值清零。
+
+**SP-F-906 NM host 单进程嵌入（P0，DR-013，confirmed）**
+- 描述：sp-desktop.exe 同时是托盘 GUI 进程与 native messaging host（注册表 manifest 指向它）——浏览器拉起的实例在专用线程跑 NM 请求循环，与会话管理器共享进程内同一会话（会话进程内闭环，免跨进程会话共享/IPC）；协议编解码/动作分发/请求循环/origin 校验复用 sp-nmhost 库目标（零复制）；锁定态机密请求 → 回 locked 语义 + 弹本实例解锁窗；stdin EOF（端口关闭）→ 进程退出。旧 sp-nmhost 注册双轨保持可用。
+- 验收：模拟 NM 握手测试（serve 循环 + 适配器全链路：ping→解锁→get-logins→get-secret→lock→locked）；`cargo tauri build` 后 register.ps1 -Target desktop 注册 + 手工 Chrome 填充验证；旧 sp-nmhost 回归（既有测试/注册不变）。
+
+**SP-F-907 桌面浏览器填充链路（P0，DR-013，confirmed）**
+- 描述：sp.get-logins 按 URL 匹配条目摘要（复用 match_url 语义，SP-F-706 单源）+ sp.get-secret 单条显式取回（password/totp 白名单）；动作纪律与 SP-F-702 单源（无全库导出、锁定拒绝、机密不进错误链、成功请求刷新空闲计时）；NM 侧解锁目标=桌面单库（%APPDATA%/SuperPasswdKey/vault.kdbx），keyfile 仅经 nm-host-config.json（不经管道）。
+- 验收：匹配命中与反例（子串误配不命中）；get-logins 响应不含密码字段；锁定态 get-logins/get-secret 拒绝。
 
 ## 4. 非功能需求（SP-N，全部绑定测量方法）
 
