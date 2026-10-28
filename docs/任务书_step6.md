@@ -46,14 +46,20 @@
   cargo test --workspace 2>&1 | grep -cE "^test result: ok"
   git status -sb && git log --oneline -3
 
-## 任务 1：Autofill 保存场景（M2 主线，设计先行——含 DR-012 决策闸门）
+## 任务 1：Autofill 保存场景（M2 主线——设计闸门已决，DR-012=A1，直接进实现）
 - 现状：SpAutofillService.onSaveRequest 直接 onSuccess 吞掉；add_entry/save FFI 已有
-- **设计闸门（重大决策，先出矩阵后写码，结论写 DR-012）**：save_atomic 需要凭据因子，
-  而 VaultSession 只持 Vault 句柄不存主密码（红线 #5）。两个方向：
-  A(会话内缓存 CredentialFactors——照搬 sp-nmhost DR-006 方案 A 的 SecVec+空闲清零
-    模型，Android 端为内存对象非跨进程；保存零输入，UX 最好，但红线边界扩到移动端
-    需论证威胁模型等价性); B(保存时要求用户输入主密码确认——零新增攻击面，UX 多一次
-    输入)。用户拍板后才进入实现。
+- **决策已定（DR-012，2026-10-29 拍板，A1）**：解锁时凭据因子随 open_db 留在 sp-kffi
+  actor 工作线程（SecVec），save 复用之；锁库（显式/300s 空闲）随 actor drop 清零；
+  Kotlin 侧零新增机密持有；主密码内存驻留窗口扩大到"会话期"须在 design_docs/14
+  与 SP-F-804 审查口径如实声明。实现要点：
+  - sp-kffi 增量：vault_worker 打开后保留 CredentialFactors（move 进线程常驻），
+    VaultCmd::Save 不再要求调用方传 password（保留旧 save 签名兼容或新增
+    save_with_session，二选一在实现时定）；Close 时随 db drop 清零；
+    e2e 测试补"锁库后保存被拒绝"断言
+  - 壳层：onSaveRequest 解析 FillContext 表单值 → 保存确认 Activity（显示
+    host/包名+用户名，密码不回显）→ 归属判定（webDomain/包名，同解锁匹配口径）
+    → 去重（同 host+用户名已存在：更新/跳过策略，实现时定）→ add_entry + save
+    → 完成回调
 - 实现面（设计定稿后）：onSaveRequest 解析 FillContext 表单值 → 保存确认 Activity
   （显示 host/包名+用户名，密码不回显）→ 归属判定（webDomain/包名，同解锁匹配口径）
   → 去重（同 host+用户名已存在：更新/跳过策略）→ add_entry + save → 完成回调
