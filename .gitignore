@@ -38,3 +38,4 @@ minisign.key
 
 # 本地构建/演示临时产物
 /build/
+desktop/target/

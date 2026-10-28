@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>SuperPasswdKey</title>
+  <style>
+    :root { color-scheme: light; }
+    body {
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      margin: 0; padding: 28px 32px; background: #fafafa; color: #263238;
+      user-select: none;
+    }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .sub { font-size: 12px; color: #607d8b; margin-bottom: 20px; }
+    #status {
+      font-size: 13px; padding: 10px 12px; border-radius: 6px;
+      background: #eceff1; margin-bottom: 16px; white-space: pre-wrap;
+      user-select: text;
+    }
+    label { display: block; font-size: 12px; color: #546e7a; margin: 10px 0 4px; }
+    input {
+      width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px;
+      border: 1px solid #b0bec5; border-radius: 6px; background: #fff;
+    }
+    input:focus { outline: 2px solid #00968833; border-color: #009688; }
+    button {
+      margin-top: 16px; width: 100%; padding: 10px; font-size: 14px;
+      border: none; border-radius: 6px; background: #009688; color: #fff; cursor: pointer;
+    }
+    button.secondary { background: #78909c; }
+    button:disabled { opacity: .5; cursor: default; }
+    .hint { font-size: 11px; color: #90a4ae; margin-top: 14px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <h1>SuperPasswdKey</h1>
+  <div class="sub">桌面壳（DR-013 批次 1 · 脚手架）</div>
+  <div id="status">加载中…</div>
+
+  <div id="unlockForm">
+    <label for="password">主密码</label>
+    <input id="password" type="password" autocomplete="off" />
+    <label for="keyfile">keyfile 路径（可选）</label>
+    <input id="keyfile" type="text" autocomplete="off" />
+    <button id="unlockBtn">解锁</button>
+  </div>
+
+  <button id="lockBtn" class="secondary" hidden>立即锁定</button>
+
+  <div class="hint">
+    库路径：%APPDATA%\SuperPasswdKey\vault.kdbx（可用 <code>sp init</code> 创建）<br />
+    会话策略：空闲 300s / 绝对 1800s 到期锁库（DR-013 桌面口径，设置持久化为后续增量）
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
