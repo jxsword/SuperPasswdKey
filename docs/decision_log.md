@@ -87,3 +87,11 @@
 - 理由: 引用 DR-010（终态选项 C）、真机数据（Redmi Turbo 3：t=8/p=4 解锁 2.2–2.5s 超线；HyperOS 夜间降频 8.2–18.3s 方法论发现）、本任务模拟器实测（校准建链路 3.6–3.7s；快机 t 触底=2 符合预期；建库后 UI 回显 m=64MiB/t=2/p=4）。
 - 影响: sp-kffi FfiKdfParams::default 注释与 e2e 测试语义（mobile_default_params_dr011_fallback）、android VaultSession.createVault、UnlockActivity 首建模式、TestActivity init_vault 断言；SP-N-302 移动端口径闭环。
 - 记录时间 / 会话: 2026-10-28 / SuperPasswdKey 步骤5 M1 正式化会话
+
+## DR-012 2026-10-29 Autofill 保存场景凭据来源：Rust actor 内保留凭据因子 [状态: 生效]
+- 背景: M1 只做 Autofill 读路径；保存场景（onSaveRequest 新密码入库）调 save_atomic 必须提供凭据因子，而 VaultSession 按红线 #5 不存主密码——不解决此矛盾保存场景无法实现（任务书_step6 任务 1 设计闸门）。
+- 选项与权衡: A1(sp-kffi actor 工作线程保留 CredentialFactors——Rust SecVec 可清零、保存零输入、与桌面 DR-006 方案 A 同威胁模型，选定); A2(Kotlin 侧缓存凭据——JVM String 不可零化产生额外不可清副本，弃用); B(保存时输入主密码——零扩大攻击面但每次弹框、与 Bitwarden/KeePassDX 惯例冲突、保存建议即时性丧失，弃用); C(Keystore 加密缓存——独立 DR 范围，列为 A1 的后续演进路径而非本期方案)
+- 结论: 终态=A1：解锁时凭据因子随 open_db 留在 sp-kffi actor 工作线程（SecVec），save 复用之；显式锁库与 300s 空闲锁随 actor drop 清零。主密码内存驻留窗口由"FFI 调用栈内"扩大到"会话期"，在 design_docs/14 与 SP-F-804 审查口径如实声明。
+- 理由: 红线 #5 字面要求"可确定性清零"完全满足（SecVec + 锁库即清）；本地内存注入者已越权的威胁模型下内存缓存不降低安全等级（DR-006 同款论证）；Kotlin 侧零新增机密持有；为 Keystore/生物识别独立 DR 留清晰升级路径（升级而非重构）。
+- 影响: sp-kffi 增量（Vault 因子保留 + save 语义复用）、VaultSession/SpAutofillService 保存路径、design_docs/14 v1.2、SP-F-804 审查口径；实现于步骤 6 会话执行，本条为先于实现落盘的预决策。
+- 记录时间 / 会话: 2026-10-29 / SuperPasswdKey 步骤 5.5 会话（CI e2e 转正 + step6 预备）
