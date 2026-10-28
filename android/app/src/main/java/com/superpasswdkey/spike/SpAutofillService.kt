@@ -10,6 +10,7 @@ import android.service.autofill.FillCallback
 import android.service.autofill.FillRequest
 import android.service.autofill.FillResponse
 import android.service.autofill.SaveCallback
+import android.service.autofill.SaveInfo
 import android.service.autofill.SaveRequest
 import android.text.InputType
 import android.util.Log
@@ -30,8 +31,9 @@ import java.util.concurrent.Executors
  *   find_entry 单条取回 → Dataset（RemoteViews 仅标题+用户名，SP-F-804）。
  * 会话锁定：Dataset 挂 UnlockActivity 认证 Intent，解锁后经
  * EXTRA_AUTHENTICATION_RESULT 回填（SP-F-802）。
- * 机密边界（SP-F-804）：密码只进 Dataset，不落日志/存储。
- * 保存场景（Autofill save）为 backlog（design_docs/14 §6.4）。
+ * 机密边界（SP-F-804）：密码只进 Dataset / save intent，不落日志/存储。
+ * 保存路径（SP-F-805，DR-012 A1）：onSaveRequest 解析表单凭据值 → 保存确认页
+ * （SaveConfirmActivity）归属+去重后 add_entry + saveSession（actor 驻留因子）。
  */
 class SpAutofillService : AutofillService() {
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "sp-autofill") }
@@ -146,9 +148,83 @@ class SpAutofillService : AutofillService() {
     }
 
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-        // Autofill 保存场景（新密码入库）为 backlog——design_docs/14 §6.4
-        callback.onSuccess()
+        io.execute {
+            runCatching { handleSave(request, callback) }
+                .onFailure {
+                    Log.w(TAG, "save request failed: ${it::class.simpleName}: ${it.message}")
+                    runCatching { callback.onSuccess() } // 解析异常按"无可保存项"完成，不挂起系统 save 回路
+                }
+        }
     }
+
+    /**
+     * 保存路径（SP-F-805）：解析 SaveRequest 表单凭据值（密码框判定同填充口径），
+     * 有凭据 → 经 SaveCallback.onSuccess(intentSender) 唤起 SaveConfirmActivity；
+     * 确认页 finish 即完成/取消保存（用户拒绝=不写库）。无凭据对 → onSuccess() 静默完成。
+     */
+    private fun handleSave(request: SaveRequest, callback: SaveCallback) {
+        val contexts = request.fillContexts
+        Log.i(TAG, "save: onSaveRequest received (${contexts.size} contexts)")
+        val structure = contexts.lastOrNull()?.structure
+        if (structure == null) {
+            callback.onSuccess()
+            return
+        }
+        val login = findSavedLogin(structure)
+        if (login == null || login.password.isNullOrEmpty()) {
+            Log.i(TAG, "save: no credential pair detected — nothing to save")
+            callback.onSuccess()
+            return
+        }
+        val targetPackage = structure.activityComponent?.packageName
+        val pageUrl = extractPageUrl(structure) ?: ("https://" + (targetPackage ?: "unknown"))
+        Log.i(TAG, "save: credentials offered for $pageUrl (username len=${login.username?.length ?: 0})")
+        val intent = Intent(applicationContext, SaveConfirmActivity::class.java).apply {
+            putExtra(SaveConfirmActivity.EXTRA_PAGE_URL, pageUrl)
+            putExtra(SaveConfirmActivity.EXTRA_USERNAME, login.username)
+            putExtra(SaveConfirmActivity.EXTRA_SECRET, login.password)
+        }
+        val pending = PendingIntent.getActivity(
+            applicationContext, 0, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        callback.onSuccess(pending.intentSender)
+    }
+
+    /** 保存表单解析：密码框（非空值）+ 用户名（显式 hint 或密码框前最后文本框），启发式与填充路径一致 */
+    private fun findSavedLogin(structure: AssistStructure): SavedLogin? {
+        var username: String? = null
+        var password: String? = null
+        var textBeforePassword: String? = null
+
+        fun walk(node: AssistStructure.ViewNode) {
+            val hints = node.autofillHints?.toList().orEmpty()
+            val it0 = node.inputType
+            val value = node.autofillValue?.textValue?.toString()
+            val isPassword =
+                (it0 and InputType.TYPE_CLASS_TEXT != 0 && it0 and InputType.TYPE_TEXT_VARIATION_PASSWORD != 0) ||
+                    (it0 and InputType.TYPE_CLASS_NUMBER != 0 && it0 and InputType.TYPE_NUMBER_VARIATION_PASSWORD != 0)
+            when {
+                hints.any { it.contains("PASSWORD", true) } || isPassword -> {
+                    if (password.isNullOrEmpty() && !value.isNullOrEmpty()) password = value
+                }
+                hints.any { h -> h.contains("USERNAME", true) || h.contains("EMAIL", true) || h.contains("USER", true) } -> {
+                    if (username.isNullOrEmpty() && value != null) username = value
+                }
+                it0 and InputType.TYPE_CLASS_TEXT != 0 && !value.isNullOrEmpty() ->
+                    textBeforePassword = value
+            }
+            for (i in 0 until node.childCount) walk(node.getChildAt(i))
+        }
+        for (w in 0 until structure.windowNodeCount) {
+            walk(structure.getWindowNodeAt(w).rootViewNode)
+        }
+        if (username.isNullOrEmpty()) username = textBeforePassword
+        if (password.isNullOrEmpty()) return null
+        return SavedLogin(username, password)
+    }
+
+    data class SavedLogin(val username: String?, val password: String?)
 
     companion object {
         private const val TAG = "SPIKE"
@@ -170,7 +246,9 @@ object FormMatcher {
         return uniffi.sp_kffi.rankEntryUrls(pageUrl, urls).map { summaries[it.toInt()] }
     }
 
-    /** 命中条目构造 Dataset：find_entry 单条取回密码（即用即弃，SP-F-804） */
+    /** 命中条目构造 Dataset：find_entry 单条取回密码（即用即弃，SP-F-804）。
+     *  SP-F-805：响应携带 SaveInfo（用户名+密码双必填）——系统据此在 commit 时
+     *  比对字段值变化并发起 onSaveRequest；无 SaveInfo 的响应永不触发保存。 */
     fun buildResponse(
         appContext: android.content.Context,
         session: Vault?,
@@ -192,7 +270,12 @@ object FormMatcher {
                 .build()
             builder.addDataset(dataset)
         }
-        return builder.build()
+        return builder
+            .setSaveInfo(
+                SaveInfo.Builder(SaveInfo.SAVE_DATA_TYPE_PASSWORD, arrayOf(usernameId, passwordId))
+                    .build(),
+            )
+            .build()
     }
 
     /** 锁定态：构造仅含认证回路的响应（UnlockActivity 解锁后回填）。

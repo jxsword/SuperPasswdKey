@@ -1,20 +1,22 @@
-# 14 Android M1：系统 Autofill 对接（SP-F-802/803）
+# 14 Android M1：系统 Autofill 对接（SP-F-802/803/805）
 
-- 状态：v1.1（2026-10-28，M1 正式化定稿：壳层重组/首建校准/超时注入验收/认证回路修复；v0.1 骨架 2026-10-27）
+- 状态：v1.2（2026-10-29，保存场景（SP-F-805）升正式节 §7，DR-012 A1 落地；v1.1 2026-10-28 M1 正式化定稿；v0.1 骨架 2026-10-27）
 - 上游依赖：design_docs/13（UniFFI 绑定与 actor 线程模型，已转正）
-- 范围：M1 = **填充读路径**（Autofill 响应库内条目）；Autofill 保存场景（新密码入库）backlog 单列
+- 范围：M1 = 填充读路径（Autofill 响应库内条目）；M2（步骤 6）= **保存写路径**（新凭据入库，§7）
 
 ## 1. 目标与验收锚点
 
 - SP-F-802：解锁会话（超时锁库、凭据清零、不落 SharedPreferences/日志）
 - SP-F-803：AutofillService 按 web 域名/包名匹配条目，返回用户名+密码数据集；不匹配返回空集不猜测
-- 验收：模拟器主链路（Chrome/演示 App）填充成功；真机精度实测为验收前置（DR-009）
+- SP-F-805：Autofill 保存场景——onSaveRequest 表单解析 → 确认页 → 归属/去重 → 入库（§7）
+- 验收：模拟器主链路（Chrome/演示 App）填充成功；保存链路确认入库+重开库可读+拒绝路径零写入；真机精度实测为验收前置（DR-009）
 
 ## 2. 组件结构（android/ 壳内增量）
 
 | 组件 | 职责 |
 |---|---|
-| `SpAutofillService`（android.service.autofill） | 接收 FillRequest → 提取 web 域名/包名 → 匹配 → 构造 Dataset（RemoteViews 不回显明文）；锁定态 Dataset 挂 UnlockActivity 认证回路（presentation 复用条目样式，API 33+ 强制非空） |
+| `SpAutofillService`（android.service.autofill） | 填充：FillRequest → 提取 web 域名/包名 → 匹配 → 构造 Dataset（RemoteViews 不回显明文；响应携带 SaveInfo 声明保存意图）；锁定态 Dataset 挂 UnlockActivity 认证回路（presentation 复用条目样式，API 33+ 强制非空）。保存：onSaveRequest 表单解析 → SaveConfirmActivity（§7） |
+| `SaveConfirmActivity` | 保存确认页（SP-F-805）：展示 host/包名+用户名（密码不回显）；归属→去重→add_entry/edit_entry + saveSession；取消即不保存 |
 | `UnlockActivity` | 凭据收集（主密码+可选 keyfile 路径文本框）；双模式：库存在→解锁 / 缺失→首建（双密码校验 → VaultSession.createVault 走 calibrate_kdf 校准建库，DR-010/011 终态，界面全程提示、成功回显校准参数）；FfiException 分类错误呈现；解锁成功仅内存回传，不落盘 |
 | `VaultSession`（单例） | 持有 kffi `Vault` + 最后活跃时间戳；空闲超时（默认 300s，对齐 SP-F-703）调 `lock()`；懒检查兜底；依赖纪律=标准库 Executors（壳层不引 coroutine）；注入点：idleTimeoutMs/nowMs（SP-F-802 可注入时钟验收）；`createVault`=calibrate→create→unlock |
 | 匹配引擎 | **复用** `sp-nmhost/src/match_url.rs`（parse_url/score/rank，SP-F-706 语义与测试）——见 §3 结构决策 |
@@ -39,7 +41,9 @@ Autofill 请求 ──► VaultSession（未解锁?）──► UnlockActivity�
 ```
 
 - 凭据只经 intent/内存传递；解锁态只存在于 VaultSession 单例；进程被杀即失锁（无持久化恢复，backlog 的 Keystore 会话缓存另行 DR）。
+- **DR-012 A1（v1.2 起）**：主密码内存驻留窗口由"FFI 调用栈内"扩大为"**会话期**"——凭据因子随 open_db 留驻 sp-kffi actor 工作线程（Zeroizing 缓冲，锁库/句柄释放随 actor drop 零化），供保存场景复用（`Vault::save_session`）；Kotlin 侧零新增机密持有。此为如实声明的边界扩张，审查口径与 SP-F-804 一致（红线 #5"可确定性清零"仍满足：锁库即清）。
 - 日志：任何机密值/凭据不进 Logcat（延续 spike 壳纪律，代码审查项 SP-F-804）。
+- 保存路径机密流：onSaveRequest 表单值经 save intent extra 传递（系统 RAM，进程内，不落盘/日志）→ 确认页消费 → FFI add_entry → saveSession（因子复用，密码不出 Kotlin 侧新持有面）。
 
 ## 5. 风险清单（v0.1）
 
@@ -57,4 +61,43 @@ Autofill 请求 ──► VaultSession（未解锁?）──► UnlockActivity�
 2. **M1b** ✅（2026-10-27）：VaultSession（空闲 300s 锁库 + 懒检查，SP-F-802）+ UnlockActivity（手动解锁 + Autofill 认证回路）+ SpAutofillService（表单启发式/webDomain/包名匹配 + Dataset + 认证回路）+ DemoLoginActivity 演示链路；KDF 校准 `calibrate_mobile`（DR-010 终态：m=64MiB/p=4 固定，t∈[2,8] 校准至 target_ms，钳制边界测试）。**模拟器验证：service 触发 → 单源匹配（包名 bare-host）→ 数据集选择 → 字段填充成功（日志仅记值长度，SP-F-804）**。workspace 72 测试全绿。
 3. **M1c** ✅（2026-10-28，尾项已闭合）：KDF 真机基线回填（含 HyperOS 夜间降频 8–18s 方法论发现，测试方案 §7/§8）；**原生路径真机闭环 ✅**（解锁→包名匹配→填充）；浏览器路径实测：Quark 不上报结构（R14-1）、**Chrome 151 on MIUI 零 onFillRequest（ROM 策略门禁，R14-3）**——按"ROM 阻断"闭合，非本项目缺陷（原生路径同设备全通）；webDomain 真机验证转"非 MIUI 设备"前置。
 4. **M1d** ✅（2026-10-28，步骤 5 M1 正式化）：壳层重组——e2e harness 自 MainActivity 分离至 TestActivity（凭据 extras 契约迁移 + 新增 `init_vault` 校准链路断言、`idle_timeout_ms` 超时锁库注入测试，SP-F-802"可注入时钟"验收闭合）；MainActivity 重组为产品壳入口（状态面板，不再自动跑断言）；SpApplication 进程级加载 libsp_kffi.so（Autofill 服务先于 Activity 场景兜底）；exported 最小化（演示/解锁 Activity 非导出，TestActivity 保留导出供 adb 直驱——API 34 起 shell 无法启动非导出组件）；UnlockActivity 双模式（解锁/首建校准：双密码校验、校准参数回显、FfiException 分类错误呈现、会话状态显示）；FfiKdfParams::default 降级为"跳过校准"兜底（DR-011，终态=首建强制校准不静默降级）；**回归发现并修复认证 Dataset presentation 缺失**（API 33+ 强制非空，步骤 4 未触达分支）——修复后锁定→认证→解锁→回传→填充全链路模拟器回归通过；机密边界复查（无 SharedPreferences、result.txt 无凭据值、日志仅类别/长度/非机密参数）。
-5. backlog：Autofill 保存场景（新密码入库）、宽匹配、Keystore/生物识别（独立 DR）、CI 模拟器 e2e job（脚本化已具备：TestActivity 断言集 + fixture 推送流程，需 runner 装配 secrets 与 KVM 时间预算）。
+5. **M2** ✅（2026-10-29，步骤 6 任务 1）：Autofill 保存场景落地（SP-F-805，§7）：sp-kffi `save_session`（DR-012 A1，凭据因子留驻 actor）+ SaveInfo 修复 + onSaveRequest 解析 + SaveConfirmActivity + DemoLoginActivity commit/cancel 演示入口 + TestActivity e2e 断言增量（⑤b 锁库后 saveSession 拒绝 / ⑧b 保存闭环重开读回）。**模拟器验收：演示链路全通（输入新凭据→系统保存建议→确认入库→进程重启重开库→数据集可读）；拒绝路径（确认页"不保存"）零写入；全量 e2e PASS；73 测试基线（+1）。**
+6. backlog：宽匹配、Keystore/生物识别（独立 DR）、web 路径真机验证（R14-1/3，非 MIUI 设备前置）。
+
+## 7. 保存场景（SP-F-805，DR-012 A1；v1.2 新增正式节）
+
+### 7.1 链路
+
+```
+表单提交/字段失焦 ──► 系统 autofill 会话 commit
+   │ （前提：填充响应已声明 SaveInfo——无 SaveInfo 系统永不发起保存）
+   ▼
+系统保存对话框（"Save password to …?"，系统 UI；拒绝→会话取消，零请求）
+   │ 用户点 Save
+   ▼
+onSaveRequest(SaveRequest) ──► 表单解析（启发式同填充路径：密码框判定+邻近用户名）
+   │ 无凭据对（无密码值）→ onSuccess() 静默完成
+   ▼
+SaveCallback.onSuccess(intentSender) ──► SaveConfirmActivity（确认页，finish 即完成/取消保存）
+   │ 确认：归属（webDomain/包名 → https://host，同解锁填充口径）
+   │      去重（库内同 host+用户名条目：命中→edit_entry 更新密码（旧值进 history）；
+   │             未命中→add_entry 新增，标题=host，撞题时 "host (username)" 保 find_entry 单值语义）
+   │      写入：add_entry/edit_entry + saveSession（DR-012 A1：复用 actor 驻留因子，调用方零凭据入参）
+   │      会话锁定时：页内主密码解锁（密码库口径；keyfile 库需先经解锁页解锁会话）
+   ▼
+确认页 finish → 系统 save 回路完成（Toast 回执）
+```
+
+### 7.2 关键实现事实（步骤 6 实测）
+
+- **SaveInfo 是保存链路的系统前提**：填充响应（FormMatcher.buildResponse）必须 `setSaveInfo(SaveInfo.Builder(SAVE_DATA_TYPE_PASSWORD, [usernameId, passwordId]))`，否则系统在 commit 时不比对字段变化、不发起 onSaveRequest（步骤 6 回归发现，M1 读路径从未触达）。
+- SaveInfo requiredIds 双必填（用户名+密码均非空才触发保存）→ 空用户名不弹保存建议（MVP 口径）。
+- 系统保存对话框（"Save / No thanks"）为系统 UI，先于 onSaveRequest；服务端 onSuccess(intentSender) 后系统**直接唤起确认页**（无二次系统弹窗）。
+- 去重 host 口径：`strip scheme → 取路径前段`（库内 url 均为本服务写出的 https://host 形态）；与解锁填充的 rank 引擎分开——保存去重要求精确相等，不做子域归并（宽匹配 backlog）。
+- e2e 断言（TestActivity）：锁库后 `saveSession` 返回 Format("vault worker unavailable")（因子已清零）；add→save_session→锁库→重开读回全字段一致（DR-012 A1 闭环）。
+
+### 7.3 边界与声明
+
+- 主密码驻留窗口=会话期（DR-012 A1，见 §4）；确认页解锁框仅密码库口径（keyfile 库先经解锁页解锁，确认页不收 keyfile——MVP 限制，backlog）。
+- 密码值经 save intent extra 传递（系统 RAM，进程内消费后即弃，不落盘/日志；SP-F-804 审查口径如实声明）。
+- web 页面（Chrome 等）保存路径依赖 onSaveRequest 结构上报，与填充同样受 R14-1/3 ROM 门禁约束（真机验证前置）。

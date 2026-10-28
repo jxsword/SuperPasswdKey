@@ -35,6 +35,12 @@
             android:exported="false"
             android:noHistory="true" />
 
+        <!-- SP-F-805：Autofill 保存确认页（SaveCallback.onSuccess(intentSender) 唤起，
+             finish 即完成/取消保存；密码不回显） -->
+        <activity
+            android:name=".SaveConfirmActivity"
+            android:exported="false" />
+
         <!-- e2e harness（自 MainActivity 分离，M1 正式化）。
              exported=true 仅因 adb am start 需带凭据 extras 直驱（API 34 起 shell 无法启动
              非导出组件）；原 MainActivity launcher 同暴露面，测试专用载体 -->

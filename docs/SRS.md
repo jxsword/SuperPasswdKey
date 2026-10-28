@@ -209,6 +209,10 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 描述：机密在 Android 侧只进内存即用即弃；不进 SharedPreferences/日志/剪贴板历史；JNI 边界的 String 不可零化限制（R13-1）如实写入用户文档（威胁边界声明，对齐 design_docs/09§4 诚实边界原则）。
 - 验收：代码审查（无持久化写机密路径）+ 文档评审。
 
+**SP-F-805 Android Autofill 保存场景（P0，M2，DR-012 A1，confirmed）**
+- 描述：`AutofillService.onSaveRequest` 解析表单凭据值 → 保存确认页（显示 host/包名+用户名，密码不回显）→ 归属（webDomain/包名，同填充口径）→ 去重（同 host+用户名已存在则更新密码进 history，否则新增）→ `add_entry` + `save_session`（凭据因子随 open_db 留驻 sp-kffi actor 工作线程，锁库随 actor drop 零化；主密码内存驻留窗口=会话期，与 SP-F-804 审查口径一致并如实声明）。填充响应须携带 SaveInfo（用户名+密码双必填）声明保存意图。拒绝路径（系统"No thanks"/确认页取消）零写入。
+- 验收：模拟器演示链路（输入新凭据 → 系统保存建议 → 确认入库 → 重开库可读）；不保存路径行为正确（零写入）；e2e 断言（锁库后 save_session 拒绝；保存闭环重开读回）进 TestActivity；主机侧 cargo test 覆盖 save_session 语义。
+
 ## 4. 非功能需求（SP-N，全部绑定测量方法）
 
 | 编号 | 需求 | 量化指标 | 测量方法 |

@@ -49,7 +49,8 @@ adb logcat -d -s SPIKE
 
 - 全套断言：开库/全字段读回/摘要/TOTP/NotFound/错密码/KDF 复测 + 首建校准链路
   （init_vault=true，断言参数落 DR-010 边界）+ 超时锁库注入（idle_timeout_ms 缩短
-  至秒级，断言锁定且机密操作拒绝——SP-F-802 可注入时钟验收）。
+  至秒级，断言锁定且机密操作拒绝——SP-F-802 可注入时钟验收）+ 保存场景增量
+  （⑤b 锁库后 saveSession 拒绝 / ⑧b add→save_session→重开读回，DR-012 A1/SP-F-805）。
 - `TestActivity` 为 exported=true（API 34 起 shell 无法启动非导出组件，凭据 extras
   直驱需要）；演示/解锁 Activity 均为非导出，经 MainActivity 按钮触达。
 - 首次初始化 UI 流程：删除 `files/vault.kdbx` 后经 MainActivity → "解锁 / 首次
@@ -57,6 +58,13 @@ adb logcat -d -s SPIKE
   成功回显校准参数（DR-010/011 终态）。
 - Autofill 链路回归：系统"自动填充服务"选 SuperPasswdKey 后，演示登录页聚焦
   字段触发；锁定态走认证回路（认证数据集 → UnlockActivity 解锁 → 回传填充）。
+- **保存链路演示（SP-F-805）**：解锁会话 → 演示登录页输入新凭据 → "登录"（触发
+  autofillManager.commit）→ 系统保存对话框 → Save → SaveConfirmActivity 确认页
+  （显示 host+用户名，密码不回显）→ "保存到库"入库；"不保存"零写入。"提交（不保存）"
+  按钮 = autofillManager.cancel()（系统不发保存建议）。
+- **注意**：TestActivity 断言库内恰 2 条目（fixture 口径）——保存演示会向
+  vault.kdbx 写入新条目，跑完演示后如需重跑 TestActivity，先重推 fixture 覆盖
+  （`run-as ... cp /data/local/tmp/test_vault.kdbx files/vault.kdbx`）。
 
 （Git Bash 下 adb 路径参数需 `MSYS_NO_PATHCONV=1`，否则 `/data/...` 被本地路径转换。）
 

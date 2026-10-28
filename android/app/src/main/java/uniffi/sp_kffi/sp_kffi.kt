@@ -701,6 +701,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_sp_kffi_checksum_method_vault_save(
     ): Int
+    external fun uniffi_sp_kffi_checksum_method_vault_save_session(
+    ): Int
     external fun ffi_sp_kffi_uniffi_contract_version(
     ): Int
 
@@ -742,6 +744,8 @@ internal object UniffiLib {
     external fun uniffi_sp_kffi_fn_method_vault_lock(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_sp_kffi_fn_method_vault_save(`ptr`: Long,`path`: RustBuffer.ByValue,`password`: RustBuffer.ByValue,`keyfilePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_sp_kffi_fn_method_vault_save_session(`ptr`: Long,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_sp_kffi_fn_func_calibrate_kdf(`targetMs`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -907,6 +911,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_sp_kffi_checksum_method_vault_save() and 0xFFFF) != 49494) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_sp_kffi_checksum_method_vault_save_session() and 0xFFFF) != 62272) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1335,6 +1342,14 @@ public interface VaultInterface {
      */
     fun `save`(`path`: kotlin.String, `password`: kotlin.String, `keyfilePath`: kotlin.String?)
     
+    /**
+     * 会话凭据原子保存（DR-012 A1）：复用 open_db 时留驻工作线程的凭据因子，
+     * 调用方不再持有/传递主密码。库锁定（显式 lock 或空闲超时）后因子随
+     * actor drop 零化，本方法返回 Format("vault worker unavailable")。
+     * 主密码内存驻留窗口=会话期（design_docs/14 审查口径）。
+     */
+    fun `saveSession`(`path`: kotlin.String)
+    
     companion object
 }
 
@@ -1599,6 +1614,26 @@ open class Vault: Disposable, AutoCloseable, VaultInterface
         FfiConverterString.lower(`path`),
         FfiConverterString.lower(`password`),
         FfiConverterOptionalString.lower(`keyfilePath`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * 会话凭据原子保存（DR-012 A1）：复用 open_db 时留驻工作线程的凭据因子，
+     * 调用方不再持有/传递主密码。库锁定（显式 lock 或空闲超时）后因子随
+     * actor drop 零化，本方法返回 Format("vault worker unavailable")。
+     * 主密码内存驻留窗口=会话期（design_docs/14 审查口径）。
+     */
+    @Throws(FfiException::class)override fun `saveSession`(`path`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_sp_kffi_fn_method_vault_save_session(
+        it,
+        
+        FfiConverterString.lower(`path`),_status)
 }
     }
     
