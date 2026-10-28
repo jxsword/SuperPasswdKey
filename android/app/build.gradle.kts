@@ -13,7 +13,7 @@ android {
         minSdk = 28
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1.0-spike"
+        versionName = "0.1.0-m1"
     }
 
     // spike 不做混淆/压缩，保持可读栈

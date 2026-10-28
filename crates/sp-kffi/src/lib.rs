@@ -25,9 +25,10 @@ pub struct FfiKdfParams {
 }
 
 impl Default for FfiKdfParams {
-    /// DR-010 过渡默认（终态=移动端 init 校准，移植 sp-core calibration.rs 后替换）：
-    /// m=64MiB 红线 #6 硬下限不动；t 8→4 使中端真机解锁 ~1.1–1.3s（实测基线 2.2–2.5s），
-    /// 满足 ≤2s 体验线；仅影响 Android 新建库（参数随库文件存储，旧库/互操作不受影响）。
+    /// DR-010 终态已落地（DR-011）：新建库走 `calibrate_kdf`（t∈[2,8]/m=64MiB/p=4 校准至
+    /// ~1s），本默认仅保留为**跳过校准的兜底**（测试 fixture、无校准条件的调用方）。
+    /// m=64MiB 红线 #6 硬下限不动；t=4/p=4 中端真机解锁 ~1.1–1.3s。仅影响以默认参数
+    /// 新建的库（Argon2 参数随 KDBX4 头存储，旧库/互操作不受影响）。
     fn default() -> Self {
         FfiKdfParams {
             memory_kib: 64 * 1024,
