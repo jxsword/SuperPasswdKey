@@ -18,6 +18,9 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+winreg = "0.55"
+# NM host 单进程嵌入：协议编解码/动作分发/请求循环库化复用（DR-013，任务书_step7 任务 3）
+sp-nmhost = { path = "../../crates/sp-nmhost" }
 # 内核复用：会话语义与 sp-kffi actor 同源（DR-012 A1 凭据因子留驻 + save_session）
 sp-core = { path = "../../crates/sp-core" }
 sp-kffi = { path = "../../crates/sp-kffi" }

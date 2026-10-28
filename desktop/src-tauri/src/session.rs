@@ -67,10 +67,15 @@ impl Session {
 
     /// 壳层库路径单一来源：%APPDATA%/SuperPasswdKey/vault.kdbx
     pub fn default_vault_path() -> PathBuf {
-        let base = std::env::var("APPDATA").map(PathBuf::from).unwrap_or_else(|_| {
-            dirs_fallback_home().join("AppData").join("Roaming")
-        });
+        let base = std::env::var("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| dirs_fallback_home().join("AppData").join("Roaming"));
         base.join("SuperPasswdKey").join("vault.kdbx")
+    }
+
+    /// 空闲超时（秒；sp.status 的 sessionTimeoutSecs 展示口径，NM 适配面消费）
+    pub fn idle_timeout_secs(&self) -> u64 {
+        self.settings.idle_ms / 1000
     }
 
     fn expired(&self) -> bool {
@@ -100,7 +105,12 @@ impl Session {
     /// 不落任何持久层。open_db 返回 Arc<Vault>（UniFFI 对象面约束）；此处引用计数
     /// 恰为 1，try_unwrap 取回所有权——Vault(Send+!Sync) 配外层 Mutex 才能满足
     /// Tauri State 的 Send+Sync 约束。
-    pub fn unlock(&mut self, db_path: &std::path::Path, password: &str, keyfile: Option<&str>) -> Result<(), sp_kffi::FfiError> {
+    pub fn unlock(
+        &mut self,
+        db_path: &std::path::Path,
+        password: &str,
+        keyfile: Option<&str>,
+    ) -> Result<(), sp_kffi::FfiError> {
         if self.vault.is_some() {
             self.lock_now();
         }
@@ -234,13 +244,12 @@ mod tests {
         assert!(st.unlocked);
         assert!(st.vault_exists);
         // actor 可用：列摘要（经 active_vault 语义链路）
-        assert!(
-            !s.active_vault()
-                .expect("vault")
-                .list_entry_summaries()
-                .unwrap()
-                .is_empty()
-        );
+        assert!(!s
+            .active_vault()
+            .expect("vault")
+            .list_entry_summaries()
+            .unwrap()
+            .is_empty());
         s.lock_now();
         assert!(!s.status().unlocked);
     }
@@ -266,11 +275,11 @@ mod tests {
             absolute_ms: u64::MAX,
         });
         s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        assert!(!s.status().unlocked, "idle=0 must lock on first lazy check");
         assert!(
-            !s.status().unlocked,
-            "idle=0 must lock on first lazy check"
+            s.active_vault().is_none(),
+            "expired session must lock lazily"
         );
-        assert!(s.active_vault().is_none(), "expired session must lock lazily");
         assert!(!s.status().unlocked);
     }
 

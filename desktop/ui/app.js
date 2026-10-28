@@ -59,6 +59,47 @@ lockBtn.addEventListener("click", async () => {
   render(await invoke("lock_now"));
 });
 
+// ---- 设置（任务 2：settings.json + HKCU 自启；超时配置重启生效）----
+const idleMinEl = document.getElementById("idleMin");
+const absMinEl = document.getElementById("absMin");
+const autostartChk = document.getElementById("autostartChk");
+const saveBtn = document.getElementById("saveBtn");
+const settingsMsg = document.getElementById("settingsMsg");
+
+const msToMin = (ms) => Math.max(1, Math.round(ms / 60000));
+const minToMs = (min) => Math.max(60000, Math.round(min * 60000));
+
+async function loadSettings() {
+  try {
+    const s = await invoke("get_settings");
+    idleMinEl.value = msToMin(s.idle_ms);
+    absMinEl.value = msToMin(s.absolute_ms);
+    autostartChk.checked = s.autostart;
+  } catch (e) {
+    settingsMsg.textContent = `设置读取失败：${e}`;
+  }
+}
+
+saveBtn.addEventListener("click", async () => {
+  saveBtn.disabled = true;
+  settingsMsg.textContent = "保存中…";
+  try {
+    await invoke("save_settings", {
+      s: {
+        idle_ms: minToMs(Number(idleMinEl.value)),
+        absolute_ms: minToMs(Number(absMinEl.value)),
+        autostart: autostartChk.checked,
+      },
+    });
+    settingsMsg.textContent = "已保存：自启即时生效；超时配置重启后生效。";
+  } catch (e) {
+    settingsMsg.textContent = `保存失败：${e}`;
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
 refresh();
+loadSettings();
 // 每 5s 刷新倒计时展示；机密操作以后端惰性检查为准（展示不构成安全边界）
 setInterval(refresh, 5000);
