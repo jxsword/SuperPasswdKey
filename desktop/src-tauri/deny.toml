@@ -1,0 +1,53 @@
+# cargo-deny 配置（desktop 独立 workspace；SP-C-102/SP-N-304 供应链卫生在桌面壳的落点）
+#
+# 与根 deny.toml 的差异（design_docs/15 §供应链）：
+# - bans.deny 清空：Tauri 2 运行时自带 tokio（async runtime），GUI 壳无法避开；
+#   "零网络红线"（SP-N-304）对 sp-* 内核 crate 的 crate 级禁入仍由根 workspace
+#   deny 把守（本文件不影响根扫描）。桌面壳的运行期零网络由以下补偿控制约束：
+#   CSP default-src 'self'（tauri.conf.json）+ 不接 updater/远程内容 + 前端零 Node 依赖。
+# - targets 收敛为 x86_64-pc-windows-msvc：desktop 批次即 Windows 主线
+#   （tauri/wry/tao 仅 MSVC 可构建，任务书设计闸门），linux 侧依赖（gtk 链）不进扫描面。
+# - 许可证/公告/来源三项与根配置同强度（扫描对象 = tauri 全量依赖树）。
+
+[graph]
+# desktop 批次即 Windows 主线（tauri/wry/tao 仅 MSVC 可构建，任务书设计闸门）：
+# 扫描图收敛到 MSVC 目标，linux 侧依赖（gtk 链）不进扫描面
+targets = [{ triple = "x86_64-pc-windows-msvc" }]
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "AGPL-3.0-only",
+    "AGPL-3.0",
+    "GPL-3.0",
+    "MPL-2.0",
+    "CC0-1.0",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+]
+
+[bans]
+multiple-versions = "warn"
+# tauri/wry 运行时依赖树含网络能力 crate（见文件头说明）；sp-* 红线由根 deny 把守
+deny = []
+
+[advisories]
+version = 2
+yanked = "warn"
+# 供应链纪律（红线 #10）：每条豁免记录理由，随上游更新重审
+ignore = [
+    { id = "RUSTSEC-2026-0374", reason = "basic-toml unmaintained — uniffi_bindgen(askama) 构建期代码宏传递依赖，非运行时解析不可信输入；与根配置对同一公告的豁免同源，随 uniffi 升级重审" },
+]
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"

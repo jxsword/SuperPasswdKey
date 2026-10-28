@@ -107,6 +107,49 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           rust-version: "stable"
+      # desktop 独立 workspace（tauri 树；配置 desktop/src-tauri/deny.toml，
+      # graph.targets 收敛 MSVC——与 ubuntu 容器宿主无关）
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: "stable"
+          manifest-path: desktop/src-tauri/Cargo.toml
+
+  desktop:
+    # 桌面壳门禁（DR-013 批次 1，任务书_step7 任务 4）：独立 workspace
+    # （tauri/wry/tao 仅 MSVC 可构建，不并入根 workspace 防 linux CI 失败）
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain (locked by rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
+
+      - name: tauri build (release + NSIS bundle)
+        run: cargo tauri build
 
   android:
     # Android 交叉编译 + Kotlin 绑定漂移检查（DR-009；design_docs/13 §4.3）
