@@ -143,6 +143,91 @@ jobs:
             --language kotlin --out-dir /tmp/bindgen-check --no-format
           diff -r /tmp/bindgen-check/uniffi/sp_kffi android/app/src/main/java/uniffi/sp_kffi
 
+  android-e2e:
+    # 模拟器 e2e（M1 出口报告 backlog 落地）：x86_64 KVM 模拟器跑 TestActivity 断言集
+    # （FFI 面 + 首建校准链路 init_vault + 超时锁库注入 idle_timeout_ms）。
+    # fixture 口令为 SRS §5 允许入仓的测试专用值，经 intent extra 传递不落盘（SP-F-804）。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain (locked by rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Android target (on the pinned toolchain)
+        run: rustup target add x86_64-linux-android
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Cross-compile sp-kffi (x86_64 emulator)
+        run: |
+          mkdir -p android/app/src/main/jniLibs/x86_64
+          cargo ndk -t x86_64-linux-android --platform 28 -- build -p sp-kffi
+          cp target/x86_64-linux-android/debug/libsp_kffi.so android/app/src/main/jniLibs/x86_64/
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Generate fixture (test-only credentials, SRS §5)
+        run: |
+          mkdir -p build
+          SP_TEST_DB_PASSWORD=sp-test-only \
+          SP_TEST_ENTRY_PASSWORD=sp-test-entry \
+          SP_TEST_ENTRY_URL=https://com.superpasswdkey.spike \
+            cargo run -q -p sp-kffi --example make_spike_vault -- build/test_vault.kdbx
+
+      - name: Build debug APK
+        run: |
+          chmod +x android/gradlew
+          cd android && ./gradlew :app:assembleDebug
+
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run emulator e2e (TestActivity assertions)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: |
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb push build/test_vault.kdbx /data/local/tmp/
+            adb shell run-as com.superpasswdkey.spike mkdir -p files
+            adb shell run-as com.superpasswdkey.spike cp /data/local/tmp/test_vault.kdbx files/vault.kdbx
+            adb logcat -c
+            adb shell am start -n com.superpasswdkey.spike/.TestActivity \
+              --es db_password sp-test-only \
+              --es entry_password sp-test-entry \
+              --es entry_username demo-user \
+              --es entry_url https://com.superpasswdkey.spike \
+              --ez init_vault true --ei idle_timeout_ms 2000
+            for i in $(seq 1 36); do
+              if adb logcat -d -s SPIKE | grep -q "M1 E2E DONE"; then break; fi
+              sleep 5
+            done
+            adb logcat -d -s SPIKE | tee e2e_logcat.txt
+            grep -q "ALL E2E CHECKS PASSED" e2e_logcat.txt
+            grep -q "PASS: createVault" e2e_logcat.txt
+            grep -q "PASS: idle timeout lock" e2e_logcat.txt
+            if grep -qE "FAIL:|FATAL:|PENDING:" e2e_logcat.txt; then
+              echo "::error::e2e reported failure lines"
+              exit 1
+            fi
+
   extension:
     # 浏览器扩展构建门禁（SP-F-704/705；fuzz 不进 CI——design_docs/07）
     runs-on: ubuntu-latest
