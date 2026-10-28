@@ -279,6 +279,43 @@ fn write_path_add_edit_save_roundtrip() {
 }
 
 #[test]
+fn save_session_uses_resident_factors_and_lock_denies() {
+    // DR-012 A1：open 后凭据因子留驻 actor 线程；save_session 零凭据入参完成保存；
+    // 显式锁库后因子随 actor drop 零化 → save_session 被拒（Format unavailable）
+    let f = make_fixture("savesession", FfiKdfParams::default(), None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db");
+
+    vault
+        .add_entry(draft("Autofill Saved", "saved-pass"))
+        .expect("add_entry");
+    vault
+        .save_session(f.db_path.to_str().unwrap().into())
+        .expect("save_session with resident factors");
+    vault.lock().expect("lock");
+    match vault.save_session(f.db_path.to_str().unwrap().into()) {
+        Err(FfiError::Format { msg }) => assert!(msg.contains("unavailable")),
+        other => panic!("expected Format(unavailable) after lock, got {other:?}"),
+    }
+
+    let vault2 = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("reopen after session save");
+    let e = vault2
+        .find_entry("Autofill Saved".into())
+        .expect("find session-saved entry");
+    assert_eq!(e.password.as_deref(), Some("saved-pass"));
+    assert_eq!(e.username.as_deref(), Some(f.username.as_str()));
+}
+
+#[test]
 fn attachments_roundtrip() {
     let f = make_fixture("attach", FfiKdfParams::default(), None);
     let vault = open_db(

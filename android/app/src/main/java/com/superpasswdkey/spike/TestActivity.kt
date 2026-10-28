@@ -130,6 +130,16 @@ class TestActivity : Activity() {
         check(nf != null) { "expected FfiException.NotFound" }
         line("PASS: findEntry(missing) -> FfiException.NotFound")
 
+        // --- ⑤b DR-012 A1：锁库后 saveSession 被拒（凭据因子随 actor drop 清零）---
+        vault.lock()
+        val denied = try {
+            vault.saveSession(fixture.absolutePath); null
+        } catch (ex: FfiException.Format) {
+            ex
+        }
+        check(denied != null) { "expected FfiException.Format from saveSession after lock, got $denied" }
+        line("PASS: 锁库后 saveSession 被拒（Format unavailable，因子已清零）")
+
         vault.close()
 
         // --- ⑥ 错密码 → Credentials（凭据语义不细化）---
@@ -168,6 +178,38 @@ class TestActivity : Activity() {
             line("PASS: createVault 校准建链路 ${ms} ms（m=${p.memoryKib} t=${p.iterations} p=${p.parallelism}，DR-010 边界内）")
             probe.delete() // 探针库用后即删（壳层不遗留测试产物）
         }
+
+        // --- ⑧b DR-012 A1：saveSession 保存闭环（add → save_session → 锁库 → 重开读回）---
+        // 探针库从 fixture 复制（不改壳层库文件）；等价于 SaveConfirmActivity 写入路径的 FFI 面
+        val saveProbe = File(filesDir, "save_probe.kdbx")
+        saveProbe.delete()
+        fixture.copyTo(saveProbe, overwrite = true)
+        run {
+            val v = openDb(saveProbe.absolutePath, dbPassword, null)
+            v.addEntry(
+                uniffi.sp_kffi.FfiEntryDraft(
+                    title = "Autofill Saved",
+                    username = entryUsername,
+                    password = entryPassword,
+                    url = entryUrl,
+                    notes = null,
+                    otp = null,
+                    customFields = emptyList(),
+                ),
+            )
+            v.saveSession(saveProbe.absolutePath)
+            v.lock()
+        }
+        run {
+            val v2 = openDb(saveProbe.absolutePath, dbPassword, null)
+            val saved = v2.findEntry("Autofill Saved")
+            check(saved.password == entryPassword && saved.username == entryUsername) {
+                "session-saved entry mismatch"
+            }
+            v2.lock()
+        }
+        saveProbe.delete() // 探针库用后即删
+        line("PASS: saveSession 保存闭环（add → save_session → 重开读回，DR-012 A1）")
 
         // M1b 验证钩子：解锁 VaultSession（供 Autofill 演示链路使用；随后超时注入测试也依赖它）
         try {

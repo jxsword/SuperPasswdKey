@@ -260,6 +260,11 @@ enum VaultCmd {
         factors: CredentialFactors,
         resp: Res<()>,
     },
+    /// DR-012 A1：复用工作线程内驻留的凭据因子（open_db 时随 open 留存）
+    SaveSession {
+        path: String,
+        resp: Res<()>,
+    },
     AddAttachment {
         title: String,
         name: String,
@@ -281,7 +286,9 @@ fn respond<T>(resp: Res<T>, r: Result<T, FfiError>) {
 }
 
 /// 工作线程主体：Database 全程封闭在本线程（满足 keepass_ng !Send 约束）。
-/// 凭据因子仅在 open/save 调用栈内存在，用后即 drop（zeroize）。
+/// DR-012 A1：凭据因子随 open 留驻本线程（Zeroizing 缓冲，锁库/线程退出即 drop 零化），
+/// 供保存场景复用（save_session）；主密码内存驻留窗口=会话期，审查口径见 design_docs/14。
+#[allow(clippy::too_many_lines)]
 fn vault_worker(
     cmd_rx: std::sync::mpsc::Receiver<VaultCmd>,
     path: String,
@@ -298,6 +305,7 @@ fn vault_worker(
             return;
         }
     };
+    let session_factors = f;
     while let Ok(cmd) = cmd_rx.recv() {
         match cmd {
             VaultCmd::FindEntry { title, resp } => respond(
@@ -337,6 +345,11 @@ fn vault_worker(
             } => respond(
                 resp,
                 sp_kdbx::save_atomic(&db, std::path::Path::new(&path), &factors)
+                    .map_err(FfiError::from),
+            ),
+            VaultCmd::SaveSession { path, resp } => respond(
+                resp,
+                sp_kdbx::save_atomic(&db, std::path::Path::new(&path), &session_factors)
                     .map_err(FfiError::from),
             ),
             VaultCmd::AddAttachment {
@@ -440,6 +453,18 @@ impl Vault {
                 factors: factors(password, keyfile_path),
                 resp: tx,
             })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 会话凭据原子保存（DR-012 A1）：复用 open_db 时留驻工作线程的凭据因子，
+    /// 调用方不再持有/传递主密码。库锁定（显式 lock 或空闲超时）后因子随
+    /// actor drop 零化，本方法返回 Format("vault worker unavailable")。
+    /// 主密码内存驻留窗口=会话期（design_docs/14 审查口径）。
+    pub fn save_session(&self, path: String) -> Result<(), FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::SaveSession { path, resp: tx })
             .map_err(|_| worker_unavailable())?;
         rx.recv().map_err(|_| worker_unavailable())?
     }
