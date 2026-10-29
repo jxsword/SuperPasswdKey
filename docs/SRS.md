@@ -1,6 +1,6 @@
 # SuperPasswdKey 软件需求规格说明书（SRS）
 
-- 版本：**V1.3（2026-10-29，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1）**
+- 版本：**V1.4（2026-10-30，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8）**
 - 开发模型：瀑布（三轮审核：完整性→一致性→可执行性，记录见 `docs/reviews/srs_review.md`）
 - 需求来源：《docs/research/自研需求基线_SuperPasswdKey.md》（B1–B22）、决策记录 DR-001~005、2 天冲刺计划两轮复审修正
 - 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-F-8xx` Android（V1.2 新增）｜`SP-F-9xx` 桌面 Windows（V1.3 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
@@ -160,7 +160,7 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 
 ### 3.7 浏览器扩展（SP-F-7xx，V1.1 新增，来源 B4 + DR-006）
 
-> 设计见 design_docs/10/11/12；F1 从 §2.3 非目标升级为正式需求（步骤 3）。范围：Chrome（MV3）单页登录表单填充；iframe/SPA/自动保存/Firefox 列 backlog。
+> 设计见 design_docs/10/11/12；F1 从 §2.3 非目标升级为正式需求（步骤 3）。范围：Chrome（MV3）单页登录表单填充；iframe/SPA/Firefox 列 backlog。**自动保存已升级为正式需求 SP-F-708（step8，V1.4）**。
 
 **SP-F-701 native messaging host（P0，B4+DR-006，confirmed）**
 - 描述：`sp-nmhost` 长驻 host 进程（Rust，复用 sp-core/sp-kdbx）；Windows 注册表（HKCU）注册/注销脚本；manifest `allowed_origins` 绑定扩展 ID（无通配），host 启动时校验调用方 origin 双重防线。
@@ -189,6 +189,10 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 **SP-F-707 扩展端机密边界（P0，红线延伸，confirmed）**
 - 描述：扩展端机密只进内存即用即弃；不进 chrome.storage/localStorage/临时文件/日志；content script 填充后引用即清。
 - 验收：代码审查（无 storage API 写机密路径）+ 构建期 lint 规则约束。
+
+**SP-F-708 登录自动保存（P1，step8，confirmed）**
+- 描述：content script 在登录表单**提交时点**捕获用户名/密码（document 级 capture 监听，复用 SP-F-704 表单判定；stopPropagation/preventDefault/SPA 场景可命中），经内存消息直送 SW **纯内存暂存**（每 tab 一项、60s TTL、不写任何 storage，SP-F-707 同口径）→ 页内确认浮层（**密码不回显**；同页立即弹出 + 跨导航新页查询两条路径；忽略=本会话同 host 不再询问）→ 确认后经 `sp.save-login`（design_docs/11 §3）写库：host(含端口)+username 精确去重——命中更新（旧密码进 history）、未命中新增（标题=host，撞题消歧）；host 侧仅解析 URL（http/https 白名单），**不发起任何网络请求**；拒绝路径零请求零写入。旧 host（不支持该动作）回 badrequest → 浮层明示版本过旧。桌面端更新路径 notes/otp 保真、自定义字段清空（FFI 读回面限制，与 Android M2 同口径，design_docs/15 §9）。
+- 验收：模拟握手测试（新增/更新/锁定拒绝/旧 host 容忍，PR #35）+ 扩展单测（暂存队列 tab 隔离/TTL/忽略维度）+ Chrome 手工清单（真实导航页与 preventDefault 页双场景、锁定重试、忽略静默——docs/reviews/）。
 
 ### 3.8 Android（SP-F-8xx，V1.2 新增，来源 DR-002 + DR-008/DR-009）
 
