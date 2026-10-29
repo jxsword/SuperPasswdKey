@@ -39,6 +39,7 @@
 | `sp.lock` | 扩→host | — | `{}` | 显式锁库（丢弃凭据因子） |
 | `sp.get-logins` | 扩→host | `{url, submitUrl?}` | `{matches: [{id, title, username, url}]}` | URL 匹配引擎在 host（12 §3）；**不含密码** |
 | `sp.get-secret` | 扩→host | `{id, field: "password"|"totp"}` | `{value: string}` | 单条显式取回；`id` = 条目标题（v0.1 条目模型以 title 为键，局限如实声明） |
+| `sp.save-login` | 扩→host | `{url, username, password}` | `{saved: "added"\|"updated", title}` | **登录自动保存**（SP-F-708，step8 新增；v1 内向前兼容——旧 host 回 `badrequest`，扩展须容忍）。归属 host = 解析 URL 后的小写 `host[:port]`（**仅 http/https 白名单；host 不发起任何网络请求**）；去重=条目 url 的 host(含端口)+username **精确相等**（对齐 SP-F-805，不归并子域）→ 命中 `edit_entry`（旧密码自动进 history），未命中 `add_entry`（标题=host，撞题 `host (username)` 多级消歧）。锁定态回 `locked`；空 username/password 回 `badrequest`；**密码仅此一程过管道、不进错误链、不落 host 日志**。桌面端更新路径 notes/otp 保真，自定义字段清空（FFI 读回面限制，与 Android M2 同口径，design_docs/15 §9） |
 | `sp.event` | host→扩（主动） | — | `{event: "locked"}` | 空闲超时锁库通知；扩展随即停止保活 |
 
 错误模型：`error: {code, message}`，code ∈ `badrequest` | `locked` | `credentials` | `notfound` | `internal`。host 对未知 action 回 `badrequest`。红线映射：无任何"导出全库/全字段枚举"动作（10 §4）。
