@@ -16,21 +16,25 @@
   - [4.2 `sp item get` —— 查看条目](#42-sp-item-get--查看条目)
   - [4.3 `sp item list` —— 列出标题](#43-sp-item-list--列出标题)
   - [4.4 `sp item delete` —— 删除条目](#44-sp-item-delete--删除条目)
-- [5. `sp read` —— 按 URI 读单值](#5-sp-read--按-uri-读单值)
-- [6. `sp clip` —— 复制到剪贴板（超时清除）](#6-sp-clip--复制到剪贴板超时清除)
-- [7. `sp run` —— 注入环境变量运行子进程](#7-sp-run--注入环境变量运行子进程)
-- [8. `sp inject` —— 模板渲染](#8-sp-inject--模板渲染)
-- [9. `sp import` —— 批量导入](#9-sp-import--批量导入)
-  - [9.1 导入总览与去重报告](#91-导入总览与去重报告)
-  - [9.2 `import dotenv`](#92-import-dotenv)
-  - [9.3 `import csv`](#93-import-csv)
-  - [9.4 `import bw-json`](#94-import-bw-json)
-  - [9.5 `import env`](#95-import-env)
-  - [9.6 `import files`](#96-import-files)
-- [10. `sp export` —— 批量导出](#10-sp-export--批量导出)
-- [11. 交互式提示点汇总](#11-交互式提示点汇总)
-- [12. 退出码模型](#12-退出码模型)
-- [13. 已知边界与安全提示](#13-已知边界与安全提示)
+- [5. `sp attachment` —— 附件操作（add / list / get）](#5-sp-attachment--附件操作add--list--get)
+  - [5.1 `sp attachment add` —— 添加/替换附件](#51-sp-attachment-add--添加替换附件)
+  - [5.2 `sp attachment list` —— 列出附件](#52-sp-attachment-list--列出附件)
+  - [5.3 `sp attachment get` —— 取回附件](#53-sp-attachment-get--取回附件)
+- [6. `sp read` —— 按 URI 读单值](#6-sp-read--按-uri-读单值)
+- [7. `sp clip` —— 复制到剪贴板（超时清除）](#7-sp-clip--复制到剪贴板超时清除)
+- [8. `sp run` —— 注入环境变量运行子进程](#8-sp-run--注入环境变量运行子进程)
+- [9. `sp inject` —— 模板渲染](#9-sp-inject--模板渲染)
+- [10. `sp import` —— 批量导入](#10-sp-import--批量导入)
+  - [10.1 导入总览与去重报告](#101-导入总览与去重报告)
+  - [10.2 `import dotenv`](#102-import-dotenv)
+  - [10.3 `import csv`](#103-import-csv)
+  - [10.4 `import bw-json`](#104-import-bw-json)
+  - [10.5 `import env`](#105-import-env)
+  - [10.6 `import files`](#106-import-files)
+- [11. `sp export` —— 批量导出](#11-sp-export--批量导出)
+- [12. 交互式提示点汇总](#12-交互式提示点汇总)
+- [13. 退出码模型](#13-退出码模型)
+- [14. 已知边界与安全提示](#14-已知边界与安全提示)
 - [附录 A：全命令全参数覆盖核对表](#附录-a全命令全参数覆盖核对表)
 - [附录 B：相关文档](#附录-b相关文档)
 
@@ -66,7 +70,8 @@ sp clip github/Password
 ### 命令行约定
 
 - 所有写入型命令执行前都会**先解锁库**（除 `init`）：交互式提示 `Enter password to unlock <库路径>: `。
-- 管道/非交互环境下，密码从标准输入读一行（脚本化用法见 §11，注意安全提示）。
+- 交互提示与进度信息写入 **stderr**；stdout 是纯净数据通道（`sp read` 管道取值、附件原始字节输出均不受提示文本污染）。
+- 管道/非交互环境下，密码从标准输入读一行（脚本化用法见 §12，注意安全提示）。
 - 所有命令支持 `-h/--help`；`sp help <命令>` 与 `sp <命令> --help` 等价。
 
 ---
@@ -181,7 +186,7 @@ sp init --db D:\keys\work.kdbx --keyfile E:\separate-medium\work.keyfile --kdf-t
 | `--notes <NOTES>` | — | 否 | 无 | 备注（自由文本） |
 | `--field <FIELD>` | — | 否 | 无 | 自定义字段 `键=值`，**可重复**多次；9 个保留名禁止：`Password/Title/URL/UserName/Notes/otp/BinaryData/Additional/BinaryDesc`（用了报参数错误，退出码 4） |
 | `--totp <TOTP>` | — | 否 | 无 | TOTP 链接，必须是 `otpauth://` 开头（否则退出码 4） |
-| `--attach <ATTACH>` | — | 否 | 无 | 附加一个文件（任意类型二进制；**仅取文件名**，同名会覆盖） |
+| `--attach <ATTACH>` | — | 否 | 无 | 附加一个文件（任意类型二进制；**仅取文件名**，同名会覆盖；已有条目补加/读回见 §5） |
 | `--db / --keyfile / -h` | — | — | — | 见 §2 |
 
 **示例 1：最小可用条目**
@@ -204,7 +209,7 @@ sp item create work-vpn -u alice --url https://vpn.corp.example \
 ```
 
 - **用途**：一条里同时保存登录信息、自定义标签（env/tier）和 TOTP（页面有一站式验证框时浏览器可一并填充）。
-- **注意事项**：① `--totp` 的值必须是完整的 `otpauth://` 链接（从二维码/密码管理器导出获取）；示例中 `<BASE32占位符>` 请替换为你的真实值（**真实密钥不要粘贴到聊天/文档/仓库**）；② `--field` 的值**与用户名/URL 同为"库内明文级"保护**（整库加密之内，无字段级加密）——不宜放高度敏感材料，敏感文件请用 `--attach`。
+- **注意事项**：① `--totp` 的值必须是完整的 `otpauth://` 链接（从二维码/密码管理器导出获取）；示例中 `<BASE32占位符>` 请替换为你的真实值（**真实密钥不要粘贴到聊天/文档/仓库**）；② `--field` 的值**与用户名/URL 同为"库内明文级"保护**（整库加密之内，无字段级加密）——不宜放高度敏感材料，敏感文件请用附件。
 - **关联命令**：`sp item get work-vpn -t`（出 6 位动态码）。
 
 **示例 3：附加文件（如 SSH 公钥、证书）**
@@ -214,8 +219,8 @@ sp item create server-key --notes "prod jump host" --attach C:\keys\id_ed25519
 ```
 
 - **用途**：把重要文件作为附件随库加密保存。
-- **注意事项**：① 附件名**只取文件名**（`id_ed25519`），同名附件互相覆盖；② 当前版本**只能在新条目创建时附加**，且 **CLI 尚不能读回附件**（见 §13 已知边界）。
-- **关联命令**：`sp export`（附件随归档导出，从归档 `attachments/` 目录取回）。
+- **注意事项**：① 附件名**只取文件名**（`id_ed25519`），同名附件互相覆盖；② **已有条目**的附件补加/列举/取回用 `sp attachment` 命令族（§5）。
+- **关联命令**：`sp attachment get`（读回）、`sp export`（附件随归档导出）。
 
 ---
 
@@ -308,7 +313,101 @@ sp item list
 
 ---
 
-## 5. `sp read` —— 按 URI 读单值
+## 5. `sp attachment` —— 附件操作（add / list / get）
+
+**用法**：`sp attachment <add | list | get>`
+
+**用途**：给已有条目**添加/替换附件**（SSH 私钥、证书、文档等任意二进制文件，随库加密），**列出**条目附件名，并把附件**取回**为文件或原始字节流。`sp item create --attach` 只能"建条目时带一个"；本命令族补齐"已有条目增补与读回"。
+
+---
+
+### 5.1 `sp attachment add` —— 添加/替换附件
+
+**用法**：`sp attachment add [OPTIONS] <TITLE> <FILE>`
+
+**用途**：把文件附加到已有条目；同名附件直接替换（无确认提示）。
+
+**参数表**：
+
+| 参数 | 简写 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `<TITLE>` | — | ✅ | — | 目标条目标题（不存在报 notfound，退出码 3） |
+| `<FILE>` | — | ✅ | — | 要附加的文件（任意二进制；只读内容，不保留源路径） |
+| `--name <NAME>` | — | 否 | 源文件名 | 附件名（**同名覆盖**） |
+| `--db / --keyfile / -h` | — | — | — | 见 §2 |
+
+**示例**：
+
+```bash
+sp attachment add server-key C:\keys\id_ed25519
+sp attachment add server-key C:\keys\id_ed25519 --name id_ed25519.prod
+```
+
+- **用途**：把 SSH 私钥、证书等挂到指定条目，随库加密；用 `--name` 区分不同环境的同名文件。
+- **注意事项**：① **同名附件直接覆盖**（HashMap 键语义），替换敏感附件前注意；② 命令完成后会滚动备份库（`.sp-backup/` 保留 10 份，自动）；③ 大文件增加每次保存的耗时与内存占用（附件与库均为全量读写内存）。
+- **关联命令**：`sp attachment list`（核验）→ `sp attachment get`（取回）→ `sp export`（随归档备份）。
+
+### 5.2 `sp attachment list` —— 列出附件
+
+**用法**：`sp attachment list [OPTIONS] <TITLE>`
+
+**用途**：逐行打印条目全部附件名（排序后；无附件时无输出）。
+
+**参数表**：
+
+| 参数 | 简写 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `<TITLE>` | — | ✅ | — | 条目标题（不存在报 notfound，退出码 3） |
+| `--db / --keyfile / -h` | — | — | — | 见 §2 |
+
+**示例**：
+
+```bash
+sp attachment list server-key
+```
+
+- **用途**：确认条目挂了哪些附件、附件名是什么（取回时要用）。
+- **注意事项**：只输出**名字**，不输出大小/时间（KDBX 不存附加元数据）。
+- **关联命令**：`sp attachment get <标题> <名字>`。
+
+### 5.3 `sp attachment get` —— 取回附件
+
+**用法**：`sp attachment get [OPTIONS] <TITLE> <NAME>`
+
+**用途**：把附件写回文件（`--out`，ACL 限当前用户）或输出**原始字节**到 stdout（不给 `--out` 时）——stdout 模式可安全管道，例如 `sp attachment get t id_ed25519 > key` 或 `| ssh-add -`。
+
+**参数表**：
+
+| 参数 | 简写 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `<TITLE>` | — | ✅ | — | 条目标题 |
+| `<NAME>` | — | ✅ | — | 附件名（见 `list`；不存在报 notfound，退出码 3） |
+| `--out <OUT>` | — | 否 | 无（stdout 原始字节） | 写入文件（ACL 限当前用户）；不给则原始字节写 stdout |
+| `--db / --keyfile / -h` | — | — | — | 见 §2 |
+
+**示例 1：取回为文件**
+
+```bash
+sp attachment get server-key id_ed25519 --out C:\tmp\id_ed25519
+```
+
+- **用途**：把附件落盘到指定位置（权限限当前用户）。
+- **注意事项**：① 落盘的是**明文附件**（如 SSH 私钥）——用后请立即删除或转移；② 同名目标文件会被**覆盖**；③ 进度/提示信息走 stderr，可 `--out` 与提示共存。
+- **关联命令**：`ssh-add C:\tmp\id_ed25519`（使用后即删）。
+
+**示例 2：直接管道（不落盘）**
+
+```bash
+sp attachment get server-key id_ed25519 | ssh-add -
+```
+
+- **用途**：私钥不落盘直接喂给 `ssh-add` 等消费者（bash/管道友好）。
+- **注意事项**：stdout 输出是**原始字节**（无换行、无编码转换）——**PowerShell 的重定向（`>`）会按文本处理二进制**，PowerShell 用户请改用 `--out`；Git Bash/cmd/管道场景可直接使用。
+- **关联命令**：`sp attachment get --out`（PowerShell 场景）。
+
+---
+
+## 6. `sp read` —— 按 URI 读单值
 
 **用法**：`sp read [OPTIONS] <URI>`
 
@@ -331,7 +430,7 @@ curl -H "Authorization: Bearer $TOKEN" https://api.example.com/ping
 ```
 
 - **用途**：把库里的密钥喂给命令行工具，全程不落盘。
-- **注意事项**：① 值进入 shell 变量（内存）与进程参数时，在有审计/快照的环境仍可能被观察到——比明文落盘安全，但不是零暴露；② 注意 `-n` 去掉换行，否则 `Bearer` 头会多带 `\r`；③ 字段名大小写敏感（`password` 与 `Password` 是不同字段）。
+- **注意事项**：① 解锁提示写 stderr，命令替换只捕获值本身（stdout 纯净）；② 值进入 shell 变量（内存）与进程参数时，在有审计/快照的环境仍可能被观察到——比明文落盘安全，但不是零暴露；③ 注意 `-n` 去掉换行，否则 `Bearer` 头会多带 `\r`；④ 字段名大小写敏感（`password` 与 `Password` 是不同字段）。
 - **关联命令**：`sp run`（更安全的注入方式）→ `sp inject`（模板文件渲染）。
 
 **示例 2：写进受限文件**
@@ -346,7 +445,7 @@ sp read api-service/Password --out-file C:\tmp\token.txt
 
 ---
 
-## 6. `sp clip` —— 复制到剪贴板（超时清除）
+## 7. `sp clip` —— 复制到剪贴板（超时清除）
 
 **用法**：`sp clip [OPTIONS] <URI>`
 
@@ -373,7 +472,7 @@ sp clip github/Password --timeout 10
 
 ---
 
-## 7. `sp run` —— 注入环境变量运行子进程
+## 8. `sp run` —— 注入环境变量运行子进程
 
 **用法**：`sp run [OPTIONS] -- <CMD>...`
 
@@ -415,7 +514,7 @@ sp run --stdin --env-file app.env -- bash -c 'while IFS= read -r -d "" r; do ech
 
 ---
 
-## 8. `sp inject` —— 模板渲染
+## 9. `sp inject` —— 模板渲染
 
 **用法**：`sp inject [OPTIONS] --input <INPUT>`
 
@@ -455,9 +554,9 @@ sp inject -i config.tpl --stdout | some-consumer
 
 ---
 
-## 9. `sp import` —— 批量导入
+## 10. `sp import` —— 批量导入
 
-### 9.1 导入总览与去重报告
+### 10.1 导入总览与去重报告
 
 **用法**：`sp import [OPTIONS] <dotenv | csv | bw-json | env | files>`
 
@@ -489,7 +588,7 @@ REVIEW [L3 conflict] ...   ← 需人工复查的行
 - **注意事项**：先 `--dry-run` 永远是第一步；导入是对**已解锁库的写操作**，会触发自动备份轮换（保留 10 份）。
 - **关联命令**：`--dry-run` → 正式导入 → `sp item list` 核对 → `sp export` 备份。
 
-### 9.2 `import dotenv`
+### 10.2 `import dotenv`
 
 **用法**：`sp import [--dry-run] dotenv <PATH>`
 
@@ -506,7 +605,7 @@ sp import dotenv D:\projects\app1
 - **注意事项**：目录模式只收 `.env*` 命名的文件；单文件模式不做命名限制。
 - **关联命令**：`sp run --env-file`（值在库中后，反向用于运行时注入）。
 
-### 9.3 `import csv`
+### 10.3 `import csv`
 
 **用法**：`sp import [--dry-run] csv <PATH>`
 
@@ -522,10 +621,10 @@ sp import csv C:\export\keeppassxc.csv
 ```
 
 - **用途**：从其它密码管理器导出的 CSV 里回收密码/TOTP 值。
-- **注意事项**：**即使 CSV 带 title/username/url 列，当前版本也不写入条目**（见 §9.1 形态说明，L2 去重暂不启用）；文件编码建议 UTF-8。
-- **关联命令**：导入后按 §9.1 说明用 KeePassXC 补全字段。
+- **注意事项**：**即使 CSV 带 title/username/url 列，当前版本也不写入条目**（见 §10.1 形态说明，L2 去重暂不启用）；文件编码建议 UTF-8。
+- **关联命令**：导入后按 §10.1 说明用 KeePassXC 补全字段。
 
-### 9.4 `import bw-json`
+### 10.4 `import bw-json`
 
 **用法**：`sp import [--dry-run] bw-json <PATH>`
 
@@ -538,10 +637,10 @@ sp import bw-json C:\export\bitwarden_export.json --dry-run
 ```
 
 - **用途**：从 Bitwarden 迁移值。
-- **注意事项**：同 §9.1 形态说明（用户名/URL 不随条目写入）；Bitwarden 导出文件本身是明文，导入完成并核对后请**安全销毁**源导出文件。
+- **注意事项**：同 §10.1 形态说明（用户名/URL 不随条目写入）；Bitwarden 导出文件本身是明文，导入完成并核对后请**安全销毁**源导出文件。
 - **关联命令**：`sp export`（迁移完成后做一次完整加密备份）。
 
-### 9.5 `import env`
+### 10.5 `import env`
 
 **用法**：`sp import [--dry-run] env`
 
@@ -557,7 +656,7 @@ sp import env --dry-run
 - **注意事项**：只扫描当前进程可见的环境变量；建议在**专门开的干净窗口**里跑，通过 `set`/`$env:` 临时注入你要收拢的几个值——避免把系统级无关变量扫进来。
 - **关联命令**：`sp run`（收拢后再注入给子进程）。
 
-### 9.6 `import files`
+### 10.6 `import files`
 
 **用法**：`sp import [--dry-run] files <PATH>`
 
@@ -576,7 +675,7 @@ sp import files D:\projects
 
 ---
 
-## 10. `sp export` —— 批量导出
+## 11. `sp export` —— 批量导出
 
 **用法**：`sp export [OPTIONS]`
 
@@ -613,11 +712,11 @@ sp export --plaintext > C:\backup\vault-plain.json
 
 ---
 
-## 11. 交互式提示点汇总
+## 12. 交互式提示点汇总
 
 | 提示原文 | 出现命令 | 说明 |
 |---|---|---|
-| `Enter password to unlock <库>: ` | 除 `init` 外全部命令 | 主密码解锁；**管道/非 TTY 时从 stdin 读一行** |
+| `Enter password to unlock <库>: ` | 除 `init` 外全部命令 | 主密码解锁；**管道/非 TTY 时从 stdin 读一行**；提示写 **stderr**，stdout 保持纯净 |
 | `Choose a master password:` / `Confirm master password:` | `sp init` | 新库主密码两次输入 |
 | `Entry password (empty to skip): ` | `sp item create` | 条目密码，留空则不存 |
 | `Archive passphrase:` / `Confirm passphrase: ` | `sp export`（默认模式） | 归档加密口令（与主密码独立） |
@@ -634,29 +733,29 @@ printf '%s\n' "$MASTER_PW" | sp item list
 
 ---
 
-## 12. 退出码模型
+## 13. 退出码模型
 
 | 退出码 | 含义 | 典型触发 |
 |---|---|---|
 | `0` | 成功 | — |
 | `1` | 一般错误 | 库格式/IO/配置错误（如未配置默认库）、剪贴板不可用 |
 | `2` | **凭据错误** | 主密码错、keyfile 错或缺失（**不细分为防侧信道**） |
-| `3` | 未找到 | 条目/字段/URI 不存在 |
+| `3` | 未找到 | 条目/字段/URI/附件不存在 |
 | `4` | 参数错误 | 业务校验失败（如 `--totp` 非 otpauth、`--field` 用了保留名、`init` 目标库已存在、`inject` 未给输出、`export` 未给 `--out`） |
 | 子进程退出码 | `sp run` 专用 | 子进程的退出码**原样透传** |
 
 - **注意事项**：命令行**用法层面**的错误（缺位置参数、`--field` 格式不对等）由参数解析器直接以**退出码 2** 退出——与"凭据错误"同码，脚本判错时请结合 stderr 文案区分。
-- **关联命令**：`sp run`（透传规则见 §7）。
+- **关联命令**：`sp run`（透传规则见 §8）。
 
 ---
 
-## 13. 已知边界与安全提示
+## 14. 已知边界与安全提示
 
 **功能边界（当前版本如实声明）**：
 
-1. **附件是单向窄口**：仅 `item create --attach` 可写入；**CLI 不能给已有条目补附件，也不能读回附件**（库层/FFI 已具备读取能力，CLI 命令族补全计划中）。临时取回办法：`sp export` 归档里的 `attachments/` 目录。
-2. **导入条目只含"值"**：标题/用户名/URL 不随导入写入（§9.1），需人工补全；CLI 无 `item edit`，可用 KeePassXC 打开同一库编辑。
-3. **无归档一键回导**：`sp export` 的归档恢复需手动解包处理（§10 示例 2）。
+1. **附件命令族完备度**：`sp attachment add/list/get` 已补齐"已有条目增补与读回"；仍**没有附件删除/重命名命令**（需要时用 KeePassXC 打开同一库操作）；同名附件直接覆盖。
+2. **导入条目只含"值"**：标题/用户名/URL 不随导入写入（§10.1），需人工补全；CLI 无 `item edit`，可用 KeePassXC 打开同一库编辑。
+3. **无归档一键回导**：`sp export` 的归档恢复需手动解包处理（§11 示例 2）。
 4. **没有 `--force/--quiet/--verbose`**：SRS/早期设计提及但未实现；`item create -p` 参数不存在（帮助文案以 `sp --help` 为准）。
 5. **字段保护级别**：密码与 TOTP 在库内还有一层字段级保护（ChaCha20）；**用户名、URL、备注、自定义字段只有整库加密保护**（解密后 XML 内明文）——高敏材料请放密码字段或附件。
 6. **同名条目**：创建/导入不查重，同名会遮蔽（`get/read/clip` 只命中首个）。
@@ -666,7 +765,7 @@ printf '%s\n' "$MASTER_PW" | sp item list
 
 - **keyfile 必须离线备份**（与库文件分渠道存放）；丢失=库永久不可解。
 - `sp clip` 无法控制 Windows 剪贴板历史（Win+V），用后请清理。
-- 明文出处：`item get` 无参输出、`read`（终端/`--out-file`）、`inject -o`、`export --plaintext`——这四处会产生明文，按需使用、用后清理。
+- 明文出处：`item get` 无参输出、`read`（终端/`--out-file`）、`attachment get`（文件/管道）、`inject -o`、`export --plaintext`——这些会产生明文，按需使用、用后清理。
 - 本手册中的示例值均为**占位符**；请勿把真实密钥粘进文档、聊天或仓库。
 
 ---
@@ -677,7 +776,7 @@ printf '%s\n' "$MASTER_PW" | sp item list
 
 | 命令 | 子命令 / 参数（全部） | 覆盖 |
 |---|---|---|
-| `sp` | `init` `item` `read` `run` `inject` `clip` `import` `export` `help` | ☑ |
+| `sp` | `init` `item` `attachment` `read` `run` `inject` `clip` `import` `export` `help` | ☑ |
 | 全局 | `--db` `--keyfile` `-h/--help` `-V/--version` | ☑ |
 | `sp init` | `--db` `--kdf-target-ms`（默认 700） `--keyfile` `-h` | ☑ |
 | `sp item` | `create` `get` `list` `delete` `help` | ☑ |
@@ -685,6 +784,10 @@ printf '%s\n' "$MASTER_PW" | sp item list
 | `sp item get` | `<TITLE>` `-a/--field` `-t/--totp` `--db` `--keyfile` `-h` | ☑ |
 | `sp item list` | `--db` `--keyfile` `-h` | ☑ |
 | `sp item delete` | `<TITLE>` `--db` `--keyfile` `-h` | ☑ |
+| `sp attachment` | `add` `list` `get` `help` | ☑ |
+| `sp attachment add` | `<TITLE>` `<FILE>` `--name` `--db` `--keyfile` `-h` | ☑ |
+| `sp attachment list` | `<TITLE>` `--db` `--keyfile` `-h` | ☑ |
+| `sp attachment get` | `<TITLE>` `<NAME>` `--out` `--db` `--keyfile` `-h` | ☑ |
 | `sp read` | `<URI>` `-n/--no-newline` `--out-file` `--db` `--keyfile` `-h` | ☑ |
 | `sp clip` | `<URI>` `--timeout` `--db` `--keyfile` `-h` | ☑ |
 | `sp run` | `--env-file` `--no-masking` `--stdin` `-- <CMD>...`(必填) `--db` `--keyfile` `-h` | ☑ |

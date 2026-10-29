@@ -70,9 +70,9 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 描述：每次 edit 保存旧版本为 history 条目（逐字段时间戳）。
 - 验收：history 在 KeePassXC 中可见可回溯；`sp item get --history` 列出。
 
-**SP-F-104 附件（P1→本期 P0 简化版，B21，confirmed）**
-- 描述：`sp attachment add/get`；附件存入 KDBX4 binaries（格式层加密）。
-- 验收：1MB 附件 add/get 往返无损；KeePassXC 可见。
+**SP-F-104 附件（P1→本期 P0，B21，confirmed；命令族补全 2026-10-29）**
+- 描述：`sp attachment add/list/get`——add 支持对已有条目增补/覆盖附件（同名覆盖），list 列举附件名，get 取回为文件（ACL 限当前用户）或原始字节 stdout（可管道、不落盘）；`sp item create --attach` 保留为建条目时附加；附件存入 KDBX4 binaries（格式层加密）。
+- 验收：1MB 附件 add→list→get 双通道（文件/stdout）往返无损；同名覆盖生效；错误路径（条目/附件缺失 → 退出码 3，错主密码 → 退出码 2）；KeePassXC 可见。
 
 **SP-F-105 解锁（P0，B3+冲刺复审修正 1，confirmed）**
 - 描述：每次命令交互输入主密码 + `--keyfile`（或默认库绑定的 keyfile 路径记录于 config）；派生密钥仅存内存，进程退出即清（zeroize）。
