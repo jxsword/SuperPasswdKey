@@ -4,7 +4,7 @@ Local-first, zero-knowledge password/secret manager CLI with KDBX4 interoperabil
 
 本地优先、零知识的密码/机密管理器 CLI，KDBX4 全兼容。
 
-> Status: v0.2.0-ext（CLI 全功能内核 + 浏览器扩展 F1：native messaging host + 本填充引擎；服务器轨见 [docs/SRS.md](docs/SRS.md) §10 路线）
+> Status: develop @ 2026-10-30（CLI 全功能内核 + 浏览器扩展 F1（native messaging host + 本填充引擎 + **登录自动保存** SP-F-708）+ 桌面 Windows 壳（DR-013 批次 1：托盘/双超时会话/自启/NM 单进程嵌入）+ Android M1/M2 已验证未发布；服务器轨见 [docs/SRS.md](docs/SRS.md) §10 路线）
 
 ## Security model / 安全模型（务必阅读）
 
@@ -13,7 +13,7 @@ Local-first, zero-knowledge password/secret manager CLI with KDBX4 interoperabil
 - The app performs **zero network I/O** (enforced in CI via dependency bans). 应用零网络请求（CI 依赖禁入强制）。
 - **Threat boundary / 威胁边界**（honest limits / 如实声明）：
   - Other processes of the same OS user may read this process's memory (injected env vars included). 同操作系统用户的进程可能读取本进程内存（含注入的环境变量）——这是注入式方案的固有边界。
-  - Keyfile-protected memory pages are locked (`VirtualLock`) but paging under memory pressure is best-effort; use full-disk encryption (BitLocker) for hibernation/pagefile residue. 内存页锁定为最佳努力；休眠/页面文件残留建议全盘加密。
+  - Memory pages are **not locked** (VirtualLock/SetProcessMitigationPolicy/anti-debug from design_docs/09§4 are designed but **not implemented yet** — backlog 2026-10-30 audit); sensitive material lives in process memory while the vault is unlocked — use full-disk encryption (BitLocker) for hibernation/pagefile residue. 内存页锁定/进程加固/反调试**设计有但尚未实现**（2026-10-30 回填核查，列 backlog）；解锁期间敏感材料驻留进程内存——休眠/页面文件残留建议全盘加密。
   - Database plaintext in memory (XML DOM) is not fully zeroized by the format library. 库明文（XML DOM）不被格式库全量零化——与 KeePassXC 同级。
   - This app cannot stop malicious software from reading/uploading/deleting your database file; it provides integrity detection (baseline hash) + automatic backups (rolling 10). 应用无法阻止恶意软件读写/删除库文件；提供完整性检测 + 自动备份（滚动 10 份）。
 
@@ -21,13 +21,25 @@ Local-first, zero-knowledge password/secret manager CLI with KDBX4 interoperabil
 
 - Requirements: Rust 1.99.1 (via `rust-toolchain.toml`), Node 22 + pnpm 11 (extension only), KeePassXC ≥2.7 (tests only).
 - Build: `cargo build --release` ｜ Test: `cargo test` ｜ Lint: `cargo clippy -- -D warnings`
-- Extension: `cd extension && pnpm install && pnpm build` ｜ Design docs: [design_docs/](design_docs/) (architecture `00`, crypto scheme `09`, extension `10`-`12`, Android `13`-`14`, tests `07`, git flow `08`)
+- Extension: `cd extension && pnpm install && pnpm build` ｜ Desktop: `cd desktop/src-tauri && cargo tauri build` ｜ Design docs: [design_docs/](design_docs/) (architecture `00`, crypto scheme `09`, extension `10`-`12`, Android `13`-`14`, desktop `15`, tests `07`, git flow `08`) ｜ CLI 手册: [docs/manual/sp_cli_manual.md](docs/manual/sp_cli_manual.md)
 
 ## Android（M1 原型已验证，DR-009/DR-010，未发布）
 
 Rust 内核经 UniFFI（`crates/sp-kffi`）复用于 Android：UniFFI 绑定 + 线程封闭 actor（keepass_ng `Database` 非 Send）+ 最小 Autofill 壳。已验证：模拟器与真机（Redmi Turbo 3/HyperOS）原生路径 Autofill 端到端填充全通；KDF 64MiB Argon2id 真机 2.2–2.5s（HyperOS 夜间降频可达 8–18s，实测须记录电源状态）；移动端 KDF 默认参数定为 init 校准终态（DR-010，过渡 t=4/p=4）。**未提供发布物**；web 字段 autofill 委派受浏览器/ROM 策略限制（R14-1/3，待非 MIUI 真机 + Chrome 复核）。设计：[design_docs/13](design_docs/13_Android_UniFFI.md) ｜ [14](design_docs/14_Android_Autofill.md) ｜ [spike 结论](docs/reviews/android_spike_结论报告_2026-10-27.md) ｜ [真机测试方案与记录](docs/reviews/android_真机安装测试方案_2026-10-27.md) ｜ 构建：[android/README.md](android/README.md)。
 
-## Browser extension / 浏览器扩展（v0.2.0-ext）
+## Desktop（Windows 桌面壳，DR-013 批次 1）
+
+`sp-desktop.exe` 同时是**托盘 GUI**（解锁/会话状态/设置/退出）与 **native messaging host**：浏览器经 `connectNative` 拉起的实例与 GUI 共享进程内会话语义（每进程启动首次主密码 + idle/absolute 双超时，DR-013 桌面口径）。
+
+1. 构建：`cd desktop/src-tauri && cargo tauri build`（产物 `target/release/sp-desktop.exe` + NSIS 安装包）
+2. 库路径固定 `%APPDATA%\SuperPasswdKey\vault.kdbx`（桌面单库；`sp init --db` 指向它创建）
+3. 注册浏览器填充（与 sp-nmhost 双轨、重跑即切换）：`powershell -ExecutionPolicy Bypass -File native-host/register.ps1 -Target desktop -HostExe <sp-desktop.exe> -ExtensionId <扩展ID> [-KeyfilePath <keyfile>]`
+4. 开机自启：桌面设置窗勾选（写 HKCU Run，免管理员）；超时/自启配置落 `%APPDATA%\SuperPasswdKey\settings.json`（仅非机密）
+5. 锁定态收到填充请求 → 自动弹出解锁窗（每进程一次首次主密码）；浏览器断开该实例即退出
+
+设计：[design_docs/15](design_docs/15_桌面形态.md)（进程模型/机密纪律/供应链差异披露）。
+
+## Browser extension / 浏览器扩展（v0.2.0-ext + SP-F-708）
 
 Chrome/Edge MV3 扩展经 native messaging 驱动本地 host（`sp-nmhost`）完成解锁与填充；加密解密全部本地，扩展端不落任何存储。
 
@@ -36,7 +48,8 @@ Chrome/Edge MV3 扩展经 native messaging 驱动本地 host（`sp-nmhost`）完
 3. 注册 host（免管理员，HKCU）：
    `powershell -ExecutionPolicy Bypass -File native-host/register.ps1 -HostExe <sp-nmhost.exe> -ExtensionId <chrome://extensions 显示的 32 位 ID> -DbPath <你的 .kdbx>`
 4. popup 输入主密码解锁后即可在登录页一键填充（URL 匹配规则与协议见 [design_docs/11](design_docs/11_native_messaging协议.md) / [12](design_docs/12_填充引擎与表单匹配.md)）
-5. 注销：`native-host/unregister.ps1`
+5. **登录自动保存（SP-F-708）**：登录表单提交后页内浮层确认「保存/忽略」→ 确认才写库（新凭据新增、同站同用户名更新且旧密码入历史）；host 需为含 `sp.save-login` 的版本（PR #35 之后）
+6. 注销：`native-host/unregister.ps1`
 
 威胁边界延伸（如实在声明）：扩展与 host 间为**同用户本机管道**（P1 明文帧，`allowed_origins` 绑定扩展 ID + host 侧 origin 校验双重防线；协议层加密 P2 为预适配位）；同 OS 用户恶意软件的内存读取边界与 CLI 一致。详见 [design_docs/11 §5-6](design_docs/11_native_messaging协议.md)。
 
@@ -61,14 +74,20 @@ AGPL-3.0-only. See [LICENSE](LICENSE).
 
 ```bash
 # 初始化（Argon2id 校准至 ~700ms + XML keyfile 第二因子）
-sp init --db C:\Dataault.kdbx
+sp init --db C:\vault\main.kdbx
 
-# 条目管理
-sp item create demo -u alice --url https://x.io --field env=prod --totp "otpauth://totp/demo?secret=..." -p
+# 条目管理（密码仅交互输入，无 -p 参数）
+sp item create demo -u alice --url https://x.io --field env=prod --totp "otpauth://totp/demo?secret=..."
 sp item list
 sp item get demo            # 全字段
 sp item get demo --totp     # 当前 TOTP 码
 sp item delete demo
+
+# 附件（任意文件随库加密：SSH 私钥/证书/文档）
+sp item create server-key --attach C:\keys\id_ed25519   # 建条目时附加
+sp attachment add server-key C:\keys\id_ed25519 --name id_ed25519   # 给已有条目增补/覆盖
+sp attachment list server-key
+sp attachment get server-key id_ed25519 --out C:\tmp\key   # 取回（ACL 限当前用户）
 
 # 单值读取（stdout / ACL 限定文件）
 sp read demo/Password
