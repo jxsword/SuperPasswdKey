@@ -39,6 +39,11 @@ enum Command {
         #[command(subcommand)]
         op: ItemOp,
     },
+    /// Attachment operations (SP-F-104)
+    Attachment {
+        #[command(subcommand)]
+        op: AttachmentOp,
+    },
     /// Read a single value by URI: <title>/<field> (SP-F-202)
     Read {
         uri: String,
@@ -154,6 +159,29 @@ enum ItemOp {
     Delete { title: String },
 }
 
+#[derive(Subcommand)]
+enum AttachmentOp {
+    /// Add or replace an attachment on an existing entry
+    Add {
+        title: String,
+        /// File to attach (any binary)
+        file: PathBuf,
+        /// Attachment name (defaults to the source file name)
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// List attachment names of an entry
+    List { title: String },
+    /// Write an attachment out (file with restricted ACL, or raw stdout)
+    Get {
+        title: String,
+        name: String,
+        /// Write to file (ACL restricted to current user); without it, raw bytes go to stdout
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+}
+
 fn parse_kv(s: &str) -> Result<(String, String), String> {
     s.split_once('=')
         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -202,6 +230,15 @@ fn run(cli: Cli) -> Result<(), SpError> {
             }
             ItemOp::List => commands::item_list(db, keyfile),
             ItemOp::Delete { title } => commands::item_delete(db, keyfile, title),
+        },
+        Command::Attachment { op } => match op {
+            AttachmentOp::Add { title, file, name } => {
+                commands::attachment_add(db, keyfile, &title, &file, name.as_deref())
+            }
+            AttachmentOp::List { title } => commands::attachment_list(db, keyfile, &title),
+            AttachmentOp::Get { title, name, out } => {
+                commands::attachment_get(db, keyfile, &title, &name, out)
+            }
         },
         Command::Read {
             uri,

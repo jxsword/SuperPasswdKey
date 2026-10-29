@@ -305,6 +305,23 @@ pub fn get_attachment(db: &Database, title: &str, name: &str) -> Result<Vec<u8>,
     Err(SpError::NotFound(title.to_string()))
 }
 
+/// 列出条目全部附件名（排序后；SP-F-104 补全面，CLI `sp attachment list` 消费）
+pub fn list_attachments(db: &Database, title: &str) -> Result<Vec<String>, SpError> {
+    let root = db.root.borrow();
+    let g = root.downcast_ref::<Group>().expect("root is a group");
+    for n in g.entries() {
+        let e = n.borrow();
+        if let Some(e) = e.downcast_ref::<Entry>() {
+            if e.get_title() == Some(title) {
+                let mut names: Vec<String> = e.attachments.keys().cloned().collect();
+                names.sort();
+                return Ok(names);
+            }
+        }
+    }
+    Err(SpError::NotFound(title.to_string()))
+}
+
 // ---------- TOTP（SP-F-601：RFC 6238 经 keepass_ng totp feature 本地生成） ----------
 
 /// 生成条目当前 TOTP 码（数字字符串）。
@@ -326,4 +343,46 @@ pub fn entry_totp_now(db: &Database, title: &str) -> Result<String, SpError> {
         }
     }
     Err(SpError::NotFound(title.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// SP-F-104 补全面：list_attachments 排序输出 + 未命中 NotFound。
+    /// （CLI 侧 1MB 双通道往返 e2e 见 sp-cli/tests/attachment_e2e.rs）
+    #[test]
+    fn list_attachments_sorted_and_missing_entry() {
+        let dir = std::env::temp_dir().join(format!("sp-kdbx-att-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("t.kdbx");
+        let factors = CredentialFactors::new(Zeroizing::new("sp-test-only".into()), None);
+        let params = KdfParams {
+            memory_kib: 64 * 1024,
+            iterations: 2,
+            parallelism: 1,
+        };
+        create_db(&path, &factors, &params).expect("create");
+        let mut db = open_db(&path, &factors).expect("open");
+        add_entry(
+            &mut db,
+            &EntryModel {
+                title: "e".into(),
+                ..Default::default()
+            },
+        )
+        .expect("add entry");
+        add_attachment(&mut db, "e", "b.bin", b"B").expect("attach b");
+        add_attachment(&mut db, "e", "a.bin", b"A").expect("attach a");
+        assert_eq!(
+            list_attachments(&db, "e").expect("list"),
+            vec!["a.bin".to_string(), "b.bin".to_string()],
+            "附件名须排序输出"
+        );
+        assert!(matches!(
+            list_attachments(&db, "nope"),
+            Err(SpError::NotFound(_))
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

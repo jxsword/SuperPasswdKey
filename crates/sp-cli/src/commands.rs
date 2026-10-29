@@ -27,10 +27,12 @@ fn resolve_db(cli_db: Option<&Path>, cfg: &Config) -> Result<PathBuf, SpError> {
 
 /// 读取秘密输入（SP-F-105）：TTY → rpassword 隐藏回显；非 TTY（脚本/CI）→ stdin 行读取。
 /// Windows 实测：rpassword::read_password 只读控制台 CONIN$，管道 stdin 会永久阻塞。
+/// 提示写 **stderr**：stdout 保持纯净数据通道（`sp read` 管道、`attachment get` 原始
+/// 字节输出不被提示文本污染——2026-10-29 实测修正）。
 pub(crate) fn read_secret(prompt: &str) -> Result<Zeroizing<String>, SpError> {
     use std::io::IsTerminal;
-    print!("{prompt}");
-    let _ = std::io::stdout().flush();
+    eprint!("{prompt}");
+    let _ = std::io::stderr().flush();
     if std::io::stdin().is_terminal() {
         let p =
             rpassword::read_password().map_err(|e| SpError::Io(format!("read password: {e}")))?;
@@ -332,6 +334,107 @@ pub fn item_delete(
     Ok(())
 }
 
+// ---------- 附件（SP-F-104 补全：add/list/get） ----------
+
+/// 给已有条目添加/替换附件（同名覆盖；SP-F-104）
+pub fn attachment_add(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    title: &str,
+    file: &Path,
+    name: Option<&str>,
+) -> Result<(), SpError> {
+    let data = std::fs::read(file)
+        .map_err(|e| SpError::Io(format!("read attachment '{}': {e}", file.display())))?;
+    let name = match name {
+        Some(n) if !n.is_empty() => n.to_string(),
+        _ => file
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .filter(|n| !n.is_empty())
+            .ok_or_else(|| {
+                SpError::Parameter("cannot derive attachment name from path; use --name".into())
+            })?,
+    };
+    let cfg = config::load()?;
+    let db_path = resolve_db(cli_db, &cfg)?;
+    let c2 = cfg.clone();
+    let (mut db, factors) = open_with_config(&db_path, cli_keyfile, &cfg, |cc| {
+        let mut c = c2.clone();
+        c.baseline_sha256 = cc.baseline_sha256.clone();
+        config::save(cc)
+    })?;
+    sp_kdbx::add_attachment(&mut db, title, &name, &data)?;
+    save_and_backup(&mut db, &db_path, &factors)?;
+    println!(
+        "Attachment '{name}' ({} bytes) saved to entry '{title}' (same name replaces).",
+        data.len()
+    );
+    Ok(())
+}
+
+/// 列出条目的全部附件名（排序；无附件时不输出）
+pub fn attachment_list(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    title: &str,
+) -> Result<(), SpError> {
+    let cfg = config::load()?;
+    let db_path = resolve_db(cli_db, &cfg)?;
+    let c2 = cfg.clone();
+    let (db, _factors) = open_with_config(&db_path, cli_keyfile, &cfg, |cc| {
+        let mut c = c2.clone();
+        c.baseline_sha256 = cc.baseline_sha256.clone();
+        config::save(cc)
+    })?;
+    for n in sp_kdbx::list_attachments(&db, title)? {
+        println!("{n}");
+    }
+    Ok(())
+}
+
+/// 取回附件：--out 写文件（ACL 限当前用户），否则原始字节写 stdout
+pub fn attachment_get(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    title: &str,
+    name: &str,
+    out: Option<PathBuf>,
+) -> Result<(), SpError> {
+    let cfg = config::load()?;
+    let db_path = resolve_db(cli_db, &cfg)?;
+    let c2 = cfg.clone();
+    let (db, _factors) = open_with_config(&db_path, cli_keyfile, &cfg, |cc| {
+        let mut c = c2.clone();
+        c.baseline_sha256 = cc.baseline_sha256.clone();
+        config::save(cc)
+    })?;
+    let data = sp_kdbx::get_attachment(&db, title, name)?;
+    match out {
+        Some(path) => {
+            std::fs::write(&path, &data)
+                .map_err(|e| SpError::Io(format!("write '{}': {e}", path.display())))?;
+            restrict_perms_public(&path)?;
+            eprintln!(
+                "Attachment '{name}' ({} bytes) written to {}",
+                data.len(),
+                path.display()
+            );
+        }
+        None => {
+            use std::io::Write as _;
+            std::io::stdout()
+                .write_all(&data)
+                .map_err(|e| SpError::Io(format!("write stdout: {e}")))?;
+            eprintln!(
+                "Attachment '{name}' ({} bytes) written to stdout as raw bytes.",
+                data.len()
+            );
+        }
+    }
+    Ok(())
+}
+
 // ---------- read / clip ----------
 
 /// 解析引用 URI（SP-F-202）："sp://<title>/<field>" 或 "<title>/<field>"；段不可省略
@@ -420,11 +523,16 @@ pub(crate) fn restrict_perms_public(path: &Path) -> Result<(), SpError> {
 fn restrict_perms(path: &Path) -> Result<(), SpError> {
     #[cfg(windows)]
     {
-        // icacls：移除继承、仅保留当前用户（等价 0600 的 Windows 语义）
-        let _ = std::process::Command::new("icacls")
-            .arg(path)
-            .args(["/inheritance:r", "/grant:r", "%username%:F"])
-            .status();
+        // icacls：移除继承、仅保留当前用户（等价 0600 的 Windows 语义）。
+        // 用户名须展开为实际值——icacls 不展开 %VAR%（原 %username% 写法实测
+        // 静默失败=限权未生效；2026-10-29 修复）。
+        if let Ok(user) = std::env::var("USERNAME") {
+            let _ = std::process::Command::new("icacls")
+                .arg(path)
+                .args(["/inheritance:r", "/grant:r"])
+                .arg(format!("{user}:F"))
+                .status();
+        }
     }
     #[cfg(unix)]
     {
