@@ -101,51 +101,6 @@ fn main() {
             save_settings
         ])
         .setup(move |app| {
-            // 托盘菜单：显示/解锁、立即锁定、设置、退出
-            let show = MenuItem::with_id(app, "show", "显示 / 解锁", true, None::<&str>)?;
-            let lock = MenuItem::with_id(app, "lock", "立即锁定", true, None::<&str>)?;
-            let conf = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &lock, &conf, &quit])?;
-
-            TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().expect("window icon").clone())
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .tooltip("SuperPasswdKey")
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" | "settings" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
-                    }
-                    "lock" => {
-                        if let Some(state) = app.try_state::<SessionState>() {
-                            state.0.lock().expect("session poisoned").lock_now();
-                        }
-                    }
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    // 左键单击托盘 = 唤出解锁/状态窗
-                    if matches!(
-                        event,
-                        TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        }
-                    ) {
-                        if let Some(w) = tray.app_handle().get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
-                    }
-                })
-                .build(app)?;
-
             // 窗口策略：托盘实例启动即弹解锁窗（DR-013"每次进程启动首次主密码"）；
             // NM 实例初始隐藏，锁定态请求到达时由 nm.rs 弹出。
             if let Some(w) = app.get_webview_window("main") {
@@ -155,6 +110,56 @@ fn main() {
                     let _ = w.show();
                     let _ = w.set_focus();
                 }
+            }
+
+            // 托盘仅托盘实例创建。NM 实例是服务型进程：解锁窗由 locked 请求拉起、
+            // 生命周期由端口关闭（EOF）驱动——不建托盘，避免连接期出现第二组图标。
+            // （tauri.conf.json 不再声明 trayIcon：Tauri 2 会按配置自动再建一个
+            //   无菜单托盘，与代码托盘叠成"双图标/一个无菜单"——实测翻车，2026-10-29）
+            if !nm_mode {
+                let show = MenuItem::with_id(app, "show", "显示 / 解锁", true, None::<&str>)?;
+                let lock = MenuItem::with_id(app, "lock", "立即锁定", true, None::<&str>)?;
+                let conf = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show, &lock, &conf, &quit])?;
+
+                TrayIconBuilder::with_id("main")
+                    .icon(app.default_window_icon().expect("window icon").clone())
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .tooltip("SuperPasswdKey")
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" | "settings" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
+                        "lock" => {
+                            if let Some(state) = app.try_state::<SessionState>() {
+                                state.0.lock().expect("session poisoned").lock_now();
+                            }
+                        }
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        // 左键单击托盘 = 唤出解锁/状态窗
+                        if matches!(
+                            event,
+                            TrayIconEvent::Click {
+                                button: MouseButton::Left,
+                                button_state: MouseButtonState::Up,
+                                ..
+                            }
+                        ) {
+                            if let Some(w) = tray.app_handle().get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
+                    })
+                    .build(app)?;
             }
 
             // NM host 单进程嵌入：仅浏览器拉起（argv[1]=扩展 origin）时启用
