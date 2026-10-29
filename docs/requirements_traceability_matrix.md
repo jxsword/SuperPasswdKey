@@ -46,7 +46,7 @@
 | SP-F-705 | popup 列表与搜索 | B4 | 12 | Chrome 实测（列表/搜索/填充按钮；用户验收截图 2026-10-29） | 🟢 |
 | SP-F-706 | URL 匹配引擎（host 侧） | B4 | 12 | match_url 单测（精确/base domain/裸 host/端口/localhost 语义）+ 填充匹配实测 | 🟢 |
 | SP-F-707 | 扩展端机密边界（不落存储） | 红线#4#5 | 10, 12 | 代码审查（含 save-login 暂存队列纯内存复查 2026-10-30） | 🟢 |
-| SP-F-708 | 登录自动保存（捕获/浮层/sp.save-login） | step8 | 11 §3, 12 §8, 15 §9 | host 侧模拟握手 34 测试（PR #35）+ 扩展 vitest 19（PR #36）均绿；Chrome 手工清单待用户（docs/reviews/chrome_manual_checklist_保存流_2026-10-30.md） | 🟡 手工项待用户 |
+| SP-F-708 | 登录自动保存（捕获/浮层/sp.save-login） | step8 | 11 §3, 12 §8, 15 §9 | host 侧模拟握手 34 测试（PR #35）+ 扩展 vitest 19（PR #36）均绿；**Chrome 手工清单 9 项用户验收全过（2026-10-30，docs/reviews/chrome_manual_checklist_保存流_2026-10-30.md）** | 🟢 |
 | SP-F-801 | Android 内核绑定（UniFFI/actor 线程模型） | DR-002, DR-008/009 | 13 | sp-kffi e2e, 模拟器 e2e（✅ spike；M1 正式化复跑全绿 2026-10-28） | 🟢 |
 | SP-F-802 | Android 解锁会话（超时锁库/凭据清零） | 红线#5#7, DR-009 | 13, 14 | 超时可注入测试 e2e PASS（TestActivity idle_timeout_ms=2000 → 锁定+机密操作拒绝，2026-10-28）；真机 300s 空闲锁实测 ✓（步骤 4）；首建校准/错误呈现/认证回路 UI 回归全通（M1 正式化） | 🟢 |
 | SP-F-803 | 系统 Autofill 对接（M1） | DR-009 | 14 | 原生/包名路径真机+模拟器 e2e 全通 ✅；认证回路全链路回归 PASS（2026-10-28，含 presentation 修复）；web 路径待非 MIUI 真机（R14-1/3） | 🟡 |
