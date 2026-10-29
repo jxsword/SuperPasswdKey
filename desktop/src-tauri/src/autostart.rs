@@ -10,12 +10,16 @@ use winreg::RegKey;
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 pub const AUTOSTART_VALUE_NAME: &str = "SuperPasswdKey";
 
-/// 查询自启注册表值；未设置 → None（value_name 可注入以便测试隔离）
+/// 查询自启注册表值；未设置 → None（value_name 可注入以便测试隔离）。
+/// Run 键本身不存在也按"未启用"处理（全新 profile/CI 裸 runner 缺该键，
+/// open_subkey 会报 error 2——实测翻车）。
 pub fn query_named(value_name: &str) -> Result<Option<String>, String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key = hkcu
-        .open_subkey(RUN_KEY)
-        .map_err(|e| format!("open Run key: {e}"))?;
+    let key = match hkcu.open_subkey(RUN_KEY) {
+        Ok(k) => k,
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("open Run key: {e}")),
+    };
     match key.get_value::<String, _>(value_name) {
         Ok(v) => Ok(Some(v)),
         Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -23,12 +27,18 @@ pub fn query_named(value_name: &str) -> Result<Option<String>, String> {
     }
 }
 
-/// 写/删自启注册表值；enable=false 且值不存在时幂等成功（对账语义依赖此点）
-pub fn set_named(value_name: &str, enable: bool, exe_path: &str) -> Result<(), String> {
+/// 写/删自启注册表值；enable=false 且值不存在时幂等成功（对账语义依赖此点）。
+/// 写路径用 create_subkey（RegCreateKeyEx）：Run 键缺失即创建——全新机器上
+/// 首次启用自启也会走到（open_subkey 只打开不创建，CI 裸 profile 实测 error 2）。
+fn run_key_write() -> Result<RegKey, String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key = hkcu
-        .open_subkey_with_flags(RUN_KEY, KEY_SET_VALUE | KEY_QUERY_VALUE)
-        .map_err(|e| format!("open Run key: {e}"))?;
+    hkcu.create_subkey_with_flags(RUN_KEY, KEY_SET_VALUE | KEY_QUERY_VALUE)
+        .map(|(k, _disposition)| k)
+        .map_err(|e| format!("open/create Run key: {e}"))
+}
+
+pub fn set_named(value_name: &str, enable: bool, exe_path: &str) -> Result<(), String> {
+    let key = run_key_write()?;
     if enable {
         key.set_value(value_name, &format!("\"{exe_path}\""))
             .map_err(|e| format!("set Run value: {e}"))

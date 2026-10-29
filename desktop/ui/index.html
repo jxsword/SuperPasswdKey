@@ -68,7 +68,9 @@
   </div>
 
   <div class="hint">
-    库路径：%APPDATA%\SuperPasswdKey\vault.kdbx（可用 <code>sp init</code> 创建）<br />
+    库路径：%APPDATA%\SuperPasswdKey\vault.kdbx<br />
+    创建：<code>sp init --db "%APPDATA%\SuperPasswdKey\vault.kdbx"</code><br />
+    （双因子：同目录自动生成 vault.keyfile，解锁时需一并填写其路径）<br />
     会话策略：空闲/绝对双超时到期锁库，需重新输入主密码（DR-013 桌面口径）；<br />
     浏览器填充经 native messaging 由 sp-desktop 直接服务（单进程会话）。
   </div>
