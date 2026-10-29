@@ -53,6 +53,26 @@ Chrome/Edge MV3 扩展经 native messaging 驱动本地 host（`sp-nmhost`）完
 
 威胁边界延伸（如实在声明）：扩展与 host 间为**同用户本机管道**（P1 明文帧，`allowed_origins` 绑定扩展 ID + host 侧 origin 校验双重防线；协议层加密 P2 为预适配位）；同 OS 用户恶意软件的内存读取边界与 CLI 一致。详见 [design_docs/11 §5-6](design_docs/11_native_messaging协议.md)。
 
+## Install / 安装与发布（Windows，v0.3.0 起）
+
+Release 资产（tag `v*` 触发 CI 构建 **draft** Release 并上传；维护者本地 `scripts/sign-release.ps1` 签名后发布——DR-007 私钥不经 CI）：
+
+| 资产 | 形态 | 适用 |
+|---|---|---|
+| `sp-<tag>-x86_64-pc-windows-msvc.zip` | **免安装包** | 解压 → 运行 `install.ps1`（复制到 `%LOCALAPPDATA%\SuperPasswdKey\bin` + **自动加入用户 PATH**，免管理员）→ 随包含 CLI 手册与 native-host 注册脚本 |
+| `sp-cli-<tag>-x64-setup.exe` | **CLI 单安装包** | 向导安装 sp.exe/sp-nmhost.exe/手册 + 可选"加入用户 PATH"勾选 + 控制面板卸载器（仅 HKCU，免管理员） |
+| `SuperPasswdKey_<tag>_x64-setup.exe` | **桌面壳安装包** | 托盘 + 会话 + 浏览器填充（NM host）一体 |
+| `superpasswdkey-extension-<tag>.zip` | **浏览器扩展** | 商店格式 zip（dist 内容为根）：上架 Chrome Web Store 用；或解压后开发者模式加载 |
+| `SHA256SUMS.txt(.minisig)` | 校验/验签 | 见下方验签流程 |
+
+> 所有 exe 经 **CRT 静态链接**（crt-static）构建——自包含、零 VC 运行库依赖。
+
+**首次使用（CLI）**：解压 zip → 运行 `install.ps1` → 重开终端 → `sp init --db "%APPDATA%\SuperPasswdKey\vault.kdbx"` → **立即离线备份 keyfile** → 完整用法见 [docs/manual/sp_cli_manual.md](docs/manual/sp_cli_manual.md)。
+
+**浏览器扩展安装**（平台约束：Chrome 仅允许商店或企业策略两条合规途径，无法技术绕过）：
+- 正式用户：扩展上架 Chrome Web Store 后从商店安装（上架动作：开发者账号上传 `superpasswdkey-extension-<tag>.zip`，发布流程见下）；
+- 开发/试用：开发者模式加载 `extension/dist`（unpacked ID 随目录路径派生，移动目录需重新注册 NM host）。
+
 ## Release verification / 发布验签（v0.2 起）
 
 发布物附 `SHA256SUMS.txt` 与其 minisign 签名 `SHA256SUMS.txt.minisig`（Ed25519，DR-007）：

@@ -1,7 +1,7 @@
 {
   "name": "superpasswdkey-extension",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "SuperPasswdKey WebExtension (MV3) — form detection & fill via native messaging host",
   "license": "AGPL-3.0-only",
   "type": "module",
