@@ -12,6 +12,8 @@ env:
 jobs:
   windows:
     runs-on: windows-latest
+    permissions:
+      contents: write  # tag 流程：gh release create/upload（draft Release，DR-007）
     env:
       SP_KEEPASSXC_CLI: "C:\\Program Files\\KeePassXC\\keepassxc-cli.exe"
     steps:
