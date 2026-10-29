@@ -17,7 +17,9 @@ const DB_PASSWORD: &str = "sp-test-only";
 /// 非 TTY 路径：主密码走 stdin 行读取（commands::read_secret）
 fn feed_password(child: &mut Child, password: &str) {
     let mut stdin = child.stdin.take().expect("stdin");
-    stdin.write_all(password.as_bytes()).expect("write password");
+    stdin
+        .write_all(password.as_bytes())
+        .expect("write password");
     stdin.flush().expect("flush");
 }
 
@@ -115,7 +117,14 @@ fn attachment_roundtrip_1mb_and_error_paths() {
     let dst_str = dst.to_str().expect("dst path");
     let mut child = Command::new(env!("CARGO_BIN_EXE_sp"))
         .args([
-            "--db", db, "attachment", "get", "svc", "blob.bin", "--out", dst_str,
+            "--db",
+            db,
+            "attachment",
+            "get",
+            "svc",
+            "blob.bin",
+            "--out",
+            dst_str,
         ])
         .env("USERPROFILE", dir)
         .env("HOME", dir)
@@ -158,7 +167,14 @@ fn attachment_roundtrip_1mb_and_error_paths() {
     let src2_str = src2.to_str().expect("src2 path");
     let mut child = Command::new(env!("CARGO_BIN_EXE_sp"))
         .args([
-            "--db", db, "attachment", "add", "svc", src2_str, "--name", "blob.bin",
+            "--db",
+            db,
+            "attachment",
+            "add",
+            "svc",
+            src2_str,
+            "--name",
+            "blob.bin",
         ])
         .env("USERPROFILE", dir)
         .env("HOME", dir)
