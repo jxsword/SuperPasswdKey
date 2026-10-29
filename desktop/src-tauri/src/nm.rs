@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use tauri::Manager;
 
-use sp_nmhost::actions::{ActionError, EntryDigest, NmActionSession};
+use sp_nmhost::actions::{ActionError, EntryDigest, NmActionSession, SaveOutcome, SavePlan};
 use sp_nmhost::nm_loop::{self, ServeEnd};
 use sp_nmhost::origin;
 use sp_nmhost::protocol::{encode_envelope, write_frame, Envelope};
@@ -113,6 +113,63 @@ impl NmActionSession for DesktopNmSession {
                 "unsupported field '{other}'"
             ))),
         }
+    }
+
+    /// 保存登录凭据（SP-F-708）：凭据因子留驻 actor（DR-012 A1），写库用
+    /// save_session 零凭据入参。更新路径与 Android M2 同口径：notes/otp 经
+    /// find_entry 保真；**自定义字段清空**（FfiEntry 读回面不含 custom_fields，
+    /// v0.1 FFI 限制，design_docs/15 §9 如实声明）。
+    fn save_login(
+        &self,
+        page_url: &str,
+        username: &str,
+        password: &str,
+        host: &str,
+    ) -> Result<SaveOutcome, ActionError> {
+        let mut s = self.session.lock().expect("session poisoned");
+        let v = s.active_vault().ok_or_else(ActionError::locked)?;
+        let summaries: Vec<(String, Option<String>, Option<String>)> = v
+            .list_entry_summaries()
+            .map_err(|e| ActionError::new("internal", describe(&e)))?
+            .into_iter()
+            .map(|e| (e.title, e.username, e.url))
+            .collect();
+        let draft = |title: String| sp_kffi::FfiEntryDraft {
+            title,
+            username: Some(username.to_string()),
+            password: Some(password.to_string()),
+            url: Some(page_url.to_string()),
+            notes: None,
+            otp: None,
+            custom_fields: vec![],
+        };
+        let outcome = match sp_nmhost::actions::plan_save_login(&summaries, host, username) {
+            SavePlan::Update { title } => {
+                // notes/otp 保真：从读回面带出（custom_fields 见上注）
+                let mut d = draft(title.clone());
+                if let Ok(e) = v.find_entry(title.clone()) {
+                    d.notes = e.notes;
+                    d.otp = e.otp;
+                }
+                v.edit_entry(title.clone(), d)
+                    .map_err(|e| ActionError::new("internal", describe(&e)))?;
+                SaveOutcome {
+                    action: "updated",
+                    title,
+                }
+            }
+            SavePlan::Insert { title } => {
+                v.add_entry(draft(title.clone()))
+                    .map_err(|e| ActionError::new("internal", describe(&e)))?;
+                SaveOutcome {
+                    action: "added",
+                    title,
+                }
+            }
+        };
+        v.save_session(self.db_path.to_string_lossy().to_string())
+            .map_err(|e| ActionError::new("internal", describe(&e)))?;
+        Ok(outcome)
     }
 
     fn touch(&self) {
@@ -354,5 +411,56 @@ mod tests {
             f.0.to_string_lossy()
         );
         assert_eq!(resp["data"]["sessionTimeoutSecs"], 300);
+    }
+
+    /// SP-F-708 桌面链路：锁定拒绝 → 解锁 → save-login 新增 → get-logins 可见 →
+    /// save-login 更新（同 host+user）→ get-secret 读到新值。
+    #[test]
+    fn simulated_save_login_flow_added_and_updated() {
+        let f = Fixture::new("savelogin");
+        let b = bridge(&f);
+        // 锁定态 → locked
+        let resp = roundtrip(
+            &b,
+            serde_json::json!({"action": "sp.save-login", "requestID": "1",
+                "url": "https://demo.local/login", "username": "u1", "password": "pw1"}),
+        );
+        assert_eq!(resp["error"]["code"], "locked");
+        // 解锁
+        roundtrip(
+            &b,
+            serde_json::json!({"action": "sp.unlock", "requestID": "2", "password": TEST_DB_PASSWORD}),
+        );
+        // 新增：标题 = host（Fixture 里唯一条目标题为 NmDemo，无撞题）
+        let resp = roundtrip(
+            &b,
+            serde_json::json!({"action": "sp.save-login", "requestID": "3",
+                "url": "https://demo.local/login", "username": "u1", "password": "pw1"}),
+        );
+        assert_eq!(resp["data"]["saved"], "added");
+        assert_eq!(resp["data"]["title"], "demo.local");
+        // get-logins：NmDemo + demo.local 两条均匹配
+        let resp = roundtrip(
+            &b,
+            serde_json::json!({"action": "sp.get-logins", "requestID": "4", "url": "https://demo.local"}),
+        );
+        assert_eq!(
+            resp["data"]["matches"].as_array().expect("matches").len(),
+            2
+        );
+        // 更新（同 host+user，不同 url/密码）
+        let resp = roundtrip(
+            &b,
+            serde_json::json!({"action": "sp.save-login", "requestID": "5",
+                "url": "https://demo.local/x", "username": "u1", "password": "pw2"}),
+        );
+        assert_eq!(resp["data"]["saved"], "updated");
+        // get-secret 读到新值
+        let resp = roundtrip(
+            &b,
+            serde_json::json!({"action": "sp.get-secret", "requestID": "6",
+                "id": "demo.local", "field": "password"}),
+        );
+        assert_eq!(resp["data"]["value"], "pw2");
     }
 }

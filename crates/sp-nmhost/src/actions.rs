@@ -57,7 +57,84 @@ pub trait NmActionSession {
     fn entry_summaries(&self) -> Result<Vec<EntryDigest>, ActionError>;
     /// 单条字段显式取回（field 白名单由 handle 校验后才进入实现）；无值 → Err(notfound)
     fn entry_secret(&self, id: &str, field: &str) -> Result<String, ActionError>;
+    /// 保存一条登录凭据（SP-F-708；host+username 精确去重，对齐 SP-F-805 语义）。
+    /// host 已由 handle 经 login_host 解析（http/https 白名单 + host[:port]）。
+    /// 锁定态 → Err(locked)；写库原子保存由实现方负责。
+    fn save_login(
+        &self,
+        page_url: &str,
+        username: &str,
+        password: &str,
+        host: &str,
+    ) -> Result<SaveOutcome, ActionError>;
     fn touch(&self);
+}
+
+/// save-login 结果（added=新增 / updated=更新既有，旧密码自动进 history）
+#[derive(Debug, Clone, PartialEq)]
+pub struct SaveOutcome {
+    pub action: &'static str,
+    pub title: String,
+}
+
+/// 去重判定结果：Update（命中既有条目）或 Insert（新增，标题已消歧）
+#[derive(Debug, Clone, PartialEq)]
+pub enum SavePlan {
+    Update { title: String },
+    Insert { title: String },
+}
+
+/// 登录归属 host（SP-F-708）：仅解析 URL——http/https 白名单 + 小写 `host[:port]`。
+/// **不发起任何网络请求**（零网络红线不变；localhost 等本地页面保存不受影响）。
+pub fn login_host(page_url: &str) -> Result<String, ActionError> {
+    let parsed =
+        match_url::parse_url(page_url).ok_or_else(|| ActionError::bad_request("invalid url"))?;
+    if parsed.scheme != "http" && parsed.scheme != "https" {
+        return Err(ActionError::bad_request("url scheme must be http/https"));
+    }
+    if parsed.host.is_empty() {
+        return Err(ActionError::bad_request("url host is empty"));
+    }
+    Ok(match parsed.port {
+        Some(port) => format!("{}:{}", parsed.host, port),
+        None => parsed.host,
+    })
+}
+
+/// 由条目摘要计算落库动作与标题：**url 的 host(含端口) + username 精确相等** →
+/// Update（旧密码自动进 history）；否则 Insert，标题=host，撞题时
+/// `host (username)` 多级消歧（对齐 SP-F-805 去重口径；不归并子域、不猜测）。
+pub fn plan_save_login(
+    summaries: &[(String, Option<String>, Option<String>)], // (title, username, url)
+    host: &str,
+    username: &str,
+) -> SavePlan {
+    for (title, u, url) in summaries {
+        let entry_host = url
+            .as_deref()
+            .and_then(match_url::parse_url)
+            .map(|p| match p.port {
+                Some(port) => format!("{}:{}", p.host, port),
+                None => p.host,
+            });
+        if entry_host.as_deref() == Some(host) && u.as_deref() == Some(username) {
+            return SavePlan::Update {
+                title: title.clone(),
+            };
+        }
+    }
+    let taken: std::collections::HashSet<&str> =
+        summaries.iter().map(|(t, _, _)| t.as_str()).collect();
+    let mut title = host.to_string();
+    if taken.contains(title.as_str()) {
+        title = format!("{host} ({username})");
+        let mut n = 2;
+        while taken.contains(title.as_str()) {
+            title = format!("{host} ({username}) {n}");
+            n += 1;
+        }
+    }
+    SavePlan::Insert { title }
 }
 
 impl From<sp_core::SpError> for ActionError {
@@ -150,6 +227,28 @@ pub fn handle<S: NmActionSession + ?Sized>(
                 }
             };
             json!({ "value": value })
+        }
+        "sp.save-login" => {
+            let url = payload
+                .get("url")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ActionError::bad_request("missing url"))?;
+            let username = payload
+                .get("username")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ActionError::bad_request("missing username"))?;
+            let password = payload
+                .get("password")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ActionError::bad_request("missing password"))?;
+            if username.is_empty() || password.is_empty() {
+                return Err(ActionError::bad_request(
+                    "username and password must be non-empty",
+                ));
+            }
+            let host = login_host(url)?;
+            let outcome = session.save_login(url, username, password, &host)?;
+            json!({ "saved": outcome.action, "title": outcome.title })
         }
         "sp.event" => {
             return Err(ActionError::bad_request(
@@ -392,5 +491,175 @@ mod tests {
         )
         .unwrap();
         assert_eq!(r["value"], TEST_ENTRY_PASSWORD);
+    }
+
+    /// SP-F-708：save-login 的 handle 层校验（缺字段/空值/非 http(s)/坏 URL → badrequest；
+    /// 机密值不进错误链）
+    #[test]
+    fn save_login_handle_validation() {
+        let db = TempDb::new();
+        let s = Session::new(300, None);
+        s.set_db_path(db.0.clone());
+        handle(&s, &req("sp.unlock", json!({"password": TEST_DB_PASSWORD}))).unwrap();
+
+        // 缺 url/username/password → badrequest
+        assert_eq!(
+            handle(
+                &s,
+                &req("sp.save-login", json!({"username": "u", "password": "p"}))
+            )
+            .unwrap_err()
+            .code,
+            "badrequest"
+        );
+        assert_eq!(
+            handle(
+                &s,
+                &req(
+                    "sp.save-login",
+                    json!({"url": "https://ex.com", "password": "p"})
+                )
+            )
+            .unwrap_err()
+            .code,
+            "badrequest"
+        );
+        // 空值 → badrequest
+        assert_eq!(
+            handle(
+                &s,
+                &req(
+                    "sp.save-login",
+                    json!({"url": "https://ex.com", "username": "", "password": "p"})
+                )
+            )
+            .unwrap_err()
+            .code,
+            "badrequest"
+        );
+        // 非 http/https → badrequest（错误信息不含密码值）
+        let e = handle(
+            &s,
+            &req(
+                "sp.save-login",
+                json!({"url": "ftp://ex.com", "username": "u", "password": "SECRET-PW-VALUE"}),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(e.code, "badrequest");
+        assert!(
+            !e.message.contains("SECRET-PW-VALUE"),
+            "机密值不得进错误链：{e:?}"
+        );
+        // 坏 URL → badrequest
+        assert_eq!(
+            handle(
+                &s,
+                &req(
+                    "sp.save-login",
+                    json!({"url": "not-a-url", "username": "u", "password": "p"})
+                )
+            )
+            .unwrap_err()
+            .code,
+            "badrequest"
+        );
+    }
+
+    /// SP-F-708：login_host 白名单与 host[:port] 归一
+    #[test]
+    fn login_host_scheme_and_port() {
+        assert_eq!(login_host("https://ex.com/x").unwrap(), "ex.com");
+        assert_eq!(
+            login_host("http://localhost:8081/a").unwrap(),
+            "localhost:8081"
+        );
+        assert!(login_host("ftp://ex.com").is_err());
+        assert!(login_host("javascript:alert(1)").is_err());
+        assert!(login_host("not-a-url").is_err());
+    }
+
+    /// SP-F-708：去重判定纯函数——精确 host+username、不归并子域、端口参与、撞题消歧
+    #[test]
+    fn plan_save_login_dedupe_and_disambiguation() {
+        let sums = vec![
+            (
+                "ex.com".to_string(),
+                Some("u1".to_string()),
+                Some("https://ex.com".to_string()),
+            ),
+            ("other.com".to_string(), None, None),
+        ];
+        // 命中 → 更新
+        assert_eq!(
+            plan_save_login(&sums, "ex.com", "u1"),
+            SavePlan::Update {
+                title: "ex.com".into()
+            }
+        );
+        // 同 host 异 user → 撞题消歧
+        assert_eq!(
+            plan_save_login(&sums, "ex.com", "u2"),
+            SavePlan::Insert {
+                title: "ex.com (u2)".into()
+            }
+        );
+        // 新 host → 直接用 host
+        assert_eq!(
+            plan_save_login(&sums, "other.org", "u"),
+            SavePlan::Insert {
+                title: "other.org".into()
+            }
+        );
+        // 子域不归并（精确匹配）
+        assert_eq!(
+            plan_save_login(&sums, "sub.ex.com", "u1"),
+            SavePlan::Insert {
+                title: "sub.ex.com".into()
+            }
+        );
+        // 端口参与匹配；无端口条目与带端口页面互不命中
+        let sums2 = vec![(
+            "localhost:8081".to_string(),
+            Some("u".to_string()),
+            Some("http://localhost:8081".to_string()),
+        )];
+        assert_eq!(
+            plan_save_login(&sums2, "localhost:8081", "u"),
+            SavePlan::Update {
+                title: "localhost:8081".into()
+            }
+        );
+        assert_eq!(
+            plan_save_login(&sums2, "localhost", "u"),
+            SavePlan::Insert {
+                title: "localhost".into()
+            }
+        );
+        // 二级撞题：多级消歧（更新匹配要求条目 url 可解析出 host）
+        let sums3 = vec![
+            (
+                "ex.com".to_string(),
+                Some("u1".to_string()),
+                Some("https://ex.com".to_string()),
+            ),
+            (
+                "ex.com (u2)".to_string(),
+                Some("u2".to_string()),
+                Some("https://ex.com".to_string()),
+            ),
+        ];
+        assert_eq!(
+            plan_save_login(&sums3, "ex.com", "u3"),
+            SavePlan::Insert {
+                title: "ex.com (u3)".into()
+            }
+        );
+        assert_eq!(
+            plan_save_login(&sums3, "ex.com", "u2"),
+            SavePlan::Update {
+                title: "ex.com (u2)".into()
+            }
+        );
     }
 }
