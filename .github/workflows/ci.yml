@@ -85,14 +85,14 @@ jobs:
           Copy-Item native-host/README.md "$out/native-host/"
           # 桌面壳 NSIS 安装包（DR-013 批次 1 起纳入发布线）
           Copy-Item desktop/src-tauri/target/release/bundle/nsis/*.exe "$out/"
+          # 免安装 zip 初始化脚本 + CLI 手册（须先于 CLI NSIS 打包——.nsi 从 dist 取文件）
+          Copy-Item scripts/install.ps1 "$out/"
+          New-Item -ItemType Directory -Force -Path "$out/docs/manual" | Out-Null
+          Copy-Item docs/manual/sp_cli_manual.md "$out/docs/manual/"
           # CLI 单安装包（NSIS；crt-static 自包含 + PATH 可选 + 卸载器）
           & "$env:LOCALAPPDATA/tauri/NSIS/makensis.exe" "-DVER=${{ github.ref_name }}" "-DSRC=$pwd/dist" "scripts/installer/sp-cli.nsi"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Move-Item scripts/installer/sp-cli-*.exe "$out/" -Force -ErrorAction Stop
-          # 免安装 zip 初始化脚本 + CLI 手册
-          Copy-Item scripts/install.ps1 "$out/"
-          New-Item -ItemType Directory -Force -Path "$out/docs/manual" | Out-Null
-          Copy-Item docs/manual/sp_cli_manual.md "$out/docs/manual/"
           # 浏览器扩展（商店/解压两用 zip：dist 内容为根）
           Compress-Archive -Path extension/dist/* -DestinationPath "$out/superpasswdkey-extension-${{ github.ref_name }}.zip" -Force
           Push-Location $out
