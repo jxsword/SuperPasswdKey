@@ -79,3 +79,27 @@
 - 理由: 解密时间目标校准是行业主流口径（KeePassXC 官方用户指南建议 ~1s 解密时间；桌面 SP-N-302 已有同策略，一致性最好）；低端机自适应是 A/B 均不具备的能力。
 - 影响: sp-kffi 默认值（过渡）、M1b 校准移植任务、SP-N-302 真机口径闭环。参考依据（2026-10-27 实测可达）：Bitwarden 默认 32MiB/6 次/4 线程（bitwarden.com/help/kdf-algorithms，注明超出 OWASP 建议）；KeePassXC 用户指南"decryption time 滑标建议 1 秒"（keepassxc.org/docs）。
 - 记录时间 / 会话: 2026-10-27 / SuperPasswdKey 步骤4 spike 会话
+
+## DR-011 2026-10-28 移动端 KDF 终态切换落地：Android 首建默认走 calibrate_kdf [状态: 生效]
+- 背景: DR-010 预留的终态（init 校准 t∈[2,8]/m=64MiB/p=4，目标 ~1s）在步骤 5 M1 正式化中接入壳层；过渡默认 t=4/p=4 完成使命。
+- 选项与权衡: A(首建强制校准，失败即报错不静默兜底，选定——校准失败条件与建库失败同源，静默降级只会掩盖问题); B(校准失败静默回落 FfiKdfParams::default，弃用——用户无感知得到非校准库，违背校准初衷); C(维持过渡默认不再校准，弃用——低端机无自适应能力，DR-010 已否决)。
+- 结论: VaultSession.createVault = calibrate_kdf(1000) → create_db(校准参数) → unlock；FfiKdfParams::default（t=4/p=4）降级为"跳过校准"兜底（fixture/测试口径）；校准参数随 KDBX4 头存储，无需另行持久化。
+- 理由: 引用 DR-010（终态选项 C）、真机数据（Redmi Turbo 3：t=8/p=4 解锁 2.2–2.5s 超线；HyperOS 夜间降频 8.2–18.3s 方法论发现）、本任务模拟器实测（校准建链路 3.6–3.7s；快机 t 触底=2 符合预期；建库后 UI 回显 m=64MiB/t=2/p=4）。
+- 影响: sp-kffi FfiKdfParams::default 注释与 e2e 测试语义（mobile_default_params_dr011_fallback）、android VaultSession.createVault、UnlockActivity 首建模式、TestActivity init_vault 断言；SP-N-302 移动端口径闭环。
+- 记录时间 / 会话: 2026-10-28 / SuperPasswdKey 步骤5 M1 正式化会话
+
+## DR-012 2026-10-29 Autofill 保存场景凭据来源：Rust actor 内保留凭据因子 [状态: 生效]
+- 背景: M1 只做 Autofill 读路径；保存场景（onSaveRequest 新密码入库）调 save_atomic 必须提供凭据因子，而 VaultSession 按红线 #5 不存主密码——不解决此矛盾保存场景无法实现（任务书_step6 任务 1 设计闸门）。
+- 选项与权衡: A1(sp-kffi actor 工作线程保留 CredentialFactors——Rust SecVec 可清零、保存零输入、与桌面 DR-006 方案 A 同威胁模型，选定); A2(Kotlin 侧缓存凭据——JVM String 不可零化产生额外不可清副本，弃用); B(保存时输入主密码——零扩大攻击面但每次弹框、与 Bitwarden/KeePassDX 惯例冲突、保存建议即时性丧失，弃用); C(Keystore 加密缓存——独立 DR 范围，列为 A1 的后续演进路径而非本期方案)
+- 结论: 终态=A1：解锁时凭据因子随 open_db 留在 sp-kffi actor 工作线程（SecVec），save 复用之；显式锁库与 300s 空闲锁随 actor drop 清零。主密码内存驻留窗口由"FFI 调用栈内"扩大到"会话期"，在 design_docs/14 与 SP-F-804 审查口径如实声明。
+- 理由: 红线 #5 字面要求"可确定性清零"完全满足（SecVec + 锁库即清）；本地内存注入者已越权的威胁模型下内存缓存不降低安全等级（DR-006 同款论证）；Kotlin 侧零新增机密持有；为 Keystore/生物识别独立 DR 留清晰升级路径（升级而非重构）。
+- 影响: sp-kffi 增量（Vault 因子保留 + save 语义复用）、VaultSession/SpAutofillService 保存路径、design_docs/14 v1.2、SP-F-804 审查口径；实现于步骤 6 会话执行，本条为先于实现落盘的预决策。
+- 记录时间 / 会话: 2026-10-29 / SuperPasswdKey 步骤 5.5 会话（CI e2e 转正 + step6 预备）
+
+## DR-013 2026-10-29 凭据驻留策略：Android Keystore 包裹(B2+每boot主密码)，桌面双超时零豁免，两批次交付 [状态: 生效]
+- 背景: 步骤6任务3决策材料出稿后用户拍板——Android: 每次设备重启后首次打开必须主密码，之后开启生物解锁则仅验证生物免主密码；桌面(Win/macOS): 开机自启+每次打开首次主密码+可配置过期(如30min)后重新验证；优先开发 Windows。DR-012 A1 纯内存模型无法满足 Android 免密恢复（进程死=会话失，生物解锁无凭据源可取回）。
+- 选项与权衡: Q1 红线#5豁免=接受但收窄(仅 Android 生物解锁开启时 Keystore 包裹落盘，默认关闭+开启时明示确认，关闭即销毁包裹；桌面批次无免密恢复需求不触碰豁免，选定); 全量豁免(弃用: 豁免面过大); 不豁免(弃用: 与用户需求根本冲突)。Q2=确认 B2 解锁替代+主密码兜底，且比行业更严: 每 boot 首次强制主密码(Settings.Global.BOOT_COUNT 感知——Bitwarden/KeePassDX 重启后可直接生物解锁，本项目要求首次主密码，选定); 附加因子 B1(弃用: 纯 UX 损害无安全增益)。Q3=合并一个 DR 统一论证"凭据驻留"，分两批次: 批次1=Windows 主线(Tauri 托盘 GUI，用户选 A)，批次2=Android 生物解锁(置后); 拆两个 DR(弃用: 同触凭据驻留边界，分裂论证)。Q4=实现前仅定最低口径 API 28+ TEE Keystore，StrongBox 为检测到硬件时的能力增强，真机矩阵实测随任务2置后为出口前验证项(选定); 真机矩阵前置(弃用: 无真机阻塞开发)。
+- 结论: 统一"主密码重新验证策略"模型——Android: 每 boot 首次主密码→生物免密(包裹取回)→主密码/生物变更即失效回退，超时锁库语义不变; 桌面: 每次进程启动首次主密码+idle/absolute 双超时可配，到期重新主密码，无生物无落盘。红线#5 定向豁免自本 DR 起仅对 Android 生物路径生效（范围与开关语义见 Q1）。
+- 理由: 用户需求逐字映射；豁免最小化+默认关闭+明示确认+可逆（关即清）；行业对标（Bitwarden/KeePassDX 均为可选开启+Keystore 包裹+生物替代）且本项目每 boot 策略更严；批次拆分尊重"优先 Windows"，共享论证避免边界分裂。
+- 影响: 批次1(desktop/ 新 Tauri 应用: 托盘/解锁窗/会话双超时/HKCU 自启、sp-nmhost NM 协议库化嵌入、design_docs/15、SRS SP-F-9xx)；批次2(sp-kffi Keystore 包裹接口、Android 解锁策略、design_docs/14 v1.3)。桌面单进程架构（Tauri 壳内嵌 NM host，免跨进程会话共享，收敛 DR-006 遗留跨进程缓存 backlog）随任务书_step7 设计闸门确认。
+- 记录时间 / 会话: 2026-10-29 / SuperPasswdKey 步骤 6 会话（保存场景落地 + step7 规划）

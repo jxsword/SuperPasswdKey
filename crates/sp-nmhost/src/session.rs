@@ -7,7 +7,11 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use zeroize::Zeroizing;
+
 use sp_core::{CredentialFactors, SecureString, SpError};
+
+use crate::actions::{ActionError, EntryDigest, NmActionSession, SaveOutcome, SavePlan};
 
 pub const DEFAULT_SESSION_TIMEOUT_SECS: u64 = 300;
 
@@ -118,6 +122,118 @@ impl Session {
     }
 }
 
+/// 动作分发面实现：锁定/取值语义与 handle 的纪律对齐（锁定态机密操作 → locked；
+/// 无值 → notfound；机密值不进错误链）。
+impl NmActionSession for Session {
+    fn is_locked(&self) -> bool {
+        Session::is_locked(self)
+    }
+
+    fn db_path(&self) -> Option<PathBuf> {
+        Session::db_path(self)
+    }
+
+    fn session_timeout_secs(&self) -> u64 {
+        self.timeout_secs()
+    }
+
+    fn unlock(&self, password: &str) -> Result<usize, ActionError> {
+        Session::unlock(self, password).map_err(ActionError::from)
+    }
+
+    fn lock(&self) {
+        Session::lock(self)
+    }
+
+    fn entry_summaries(&self) -> Result<Vec<EntryDigest>, ActionError> {
+        let factors = self.active_factors().map_err(|_| ActionError::locked())?;
+        let db_path = self.db_path().ok_or_else(ActionError::locked)?;
+        let db = sp_kdbx::open_db(&db_path, &factors)?;
+        Ok(sp_kdbx::list_entry_summaries(&db)
+            .into_iter()
+            .map(|s| EntryDigest {
+                title: s.title,
+                username: s.username,
+                url: s.url,
+                has_otp: s.has_otp,
+            })
+            .collect())
+    }
+
+    fn entry_secret(&self, id: &str, field: &str) -> Result<String, ActionError> {
+        let factors = self.active_factors().map_err(|_| ActionError::locked())?;
+        let db_path = self.db_path().ok_or_else(ActionError::locked)?;
+        let db = sp_kdbx::open_db(&db_path, &factors)?;
+        match field {
+            "password" => sp_kdbx::find_entry(&db, id)?
+                .password
+                .map(|p| p.to_string())
+                .ok_or_else(|| {
+                    ActionError::new("notfound", format!("entry '{id}' has no password"))
+                }),
+            "totp" => Ok(sp_kdbx::entry_totp_now(&db, id)?),
+            other => Err(ActionError::bad_request(format!(
+                "unsupported field '{other}'"
+            ))),
+        }
+    }
+
+    /// 保存登录凭据（SP-F-708）：每请求重开库模型同款（open → 改 → save_atomic）。
+    /// 更新路径经 find_entry 读回全字段（notes/otp/custom_fields 保真），仅换
+    /// 密码/用户名/url；旧密码由 edit_entry 自动压入 history（SP-F-103）。
+    fn save_login(
+        &self,
+        page_url: &str,
+        username: &str,
+        password: &str,
+        host: &str,
+    ) -> Result<SaveOutcome, ActionError> {
+        let factors = self.active_factors().map_err(|_| ActionError::locked())?;
+        let db_path = self.db_path().ok_or_else(ActionError::locked)?;
+        let mut db = sp_kdbx::open_db(&db_path, &factors)?;
+        let summaries: Vec<(String, Option<String>, Option<String>)> =
+            sp_kdbx::list_entry_summaries(&db)
+                .into_iter()
+                .map(|s| (s.title, s.username, s.url))
+                .collect();
+        let outcome = match crate::actions::plan_save_login(&summaries, host, username) {
+            SavePlan::Update { title } => {
+                let mut model = sp_kdbx::find_entry(&db, &title)?;
+                model.username = Some(username.to_string());
+                model.password = Some(Zeroizing::new(password.to_string()));
+                model.url = Some(page_url.to_string());
+                sp_kdbx::edit_entry(&mut db, &title, &model)?;
+                SaveOutcome {
+                    action: "updated",
+                    title,
+                }
+            }
+            SavePlan::Insert { title } => {
+                sp_kdbx::add_entry(
+                    &mut db,
+                    &sp_core::EntryModel {
+                        title: title.clone(),
+                        username: Some(username.to_string()),
+                        password: Some(Zeroizing::new(password.to_string())),
+                        url: Some(page_url.to_string()),
+                        ..Default::default()
+                    },
+                )?;
+                SaveOutcome {
+                    action: "added",
+                    title,
+                }
+            }
+        };
+        sp_kdbx::save_atomic(&db, &db_path, &factors)?;
+        Ok(outcome)
+    }
+
+    fn touch(&self) {
+        Session::touch(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +339,53 @@ mod tests {
         }
         s.touch();
         assert!(!s.is_locked());
+    }
+
+    /// SP-F-708：save-login 新增 → 更新（同 host+user）→ 撞题消歧（同 host 异 user）
+    /// → get-logins 联动；锁定态拒绝。
+    #[test]
+    fn save_login_added_updated_disambiguated_and_lock() {
+        let db = TempDb::new("correct-horse");
+        let s = Session::new(300, None);
+        s.set_db_path(db.path.clone());
+        let save = |s: &Session, url: &str, user: &str, pw: &str| {
+            crate::actions::handle(
+                s,
+                &serde_json::json!({"action": "sp.save-login", "requestID": "t",
+                    "url": url, "username": user, "password": pw}),
+            )
+        };
+        // 锁定态 → locked
+        assert_eq!(
+            save(&s, "https://ex.com/login", "u1", "p1")
+                .unwrap_err()
+                .code,
+            "locked"
+        );
+        s.unlock("correct-horse").expect("unlock");
+        // 新增：标题 = host
+        let r = save(&s, "https://ex.com/login", "u1", "p1").expect("save 1");
+        assert_eq!(r["saved"], "added");
+        assert_eq!(r["title"], "ex.com");
+        // 更新：同 host+user（不同 url/密码），旧密码进 history
+        let r = save(&s, "https://ex.com/other", "u1", "p2").expect("save 2");
+        assert_eq!(r["saved"], "updated");
+        assert_eq!(r["title"], "ex.com");
+        assert_eq!(s.entry_secret("ex.com", "password").expect("secret"), "p2");
+        // 同 host 不同 user → 标题撞题，消歧为 "host (username)"
+        let r = save(&s, "https://ex.com", "u2", "p3").expect("save 3");
+        assert_eq!(r["title"], "ex.com (u2)");
+        // get-logins 匹配到两条，且响应不含任何密码值
+        let r = crate::actions::handle(
+            &s,
+            &serde_json::json!({"action": "sp.get-logins", "requestID": "t", "url": "https://ex.com"}),
+        )
+        .expect("get-logins");
+        assert_eq!(r["matches"].as_array().expect("matches").len(), 2);
+        let resp = r.to_string();
+        assert!(
+            !resp.contains("p1") && !resp.contains("p2") && !resp.contains("p3"),
+            "get-logins 不得含密码：{resp}"
+        );
     }
 }

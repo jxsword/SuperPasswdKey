@@ -1,0 +1,34 @@
+%% SP-F-101/105：vault.kdbx 加密（建库/保存）全过程——KDBX4 适配层（design_docs/02/09）
+%% 渲染：GitHub 原生支持 mermaid；或 https://mermaid.live
+flowchart TD
+    RND["🎲 每次保存新生成的随机量<br/>master seed 32B · KDF 盐 S 32B<br/>外层 IV 16B · 内层流键 32B"]
+
+    subgraph KEY["🔑 钥匙侧"]
+        P["主密码（用户输入）"] --> PH["SHA-256(密码 UTF-8 字节)"]
+        KF["vault.keyfile<br/>XML v1.0 → Base64 解码 → 32 字节原始密钥"] --> COMP
+        PH --> COMP["复合密钥 = SHA-256( SHA-256(密码) ‖ keyfile 32B )"]
+        COMP --> ARG["Argon2id(复合密钥, 盐 S, m/t/p, V1.3)<br/>⏳ 耗时步骤（init 校准 ~700ms）"]
+        RND -.盐 S-.-> ARG
+        ARG --> MK["master_key = SHA-256( master seed ‖ Argon2id 结果 )"]
+        ARG --> HK["hmac_key = SHA-512( master seed ‖ Argon2id 结果 ‖ 0x01 )"]
+        RND -.master seed-.-> MK
+    end
+
+    subgraph DATA["📦 数据侧"]
+        SEC["条目密码 / TOTP 明文（内存）"] --> INNER["内层 ChaCha20 流加密（内层流键）"]
+        INNER --> XML["XML 序列化：密码/TOTP = Protected=True（密文）<br/>标题/用户名/URL/备注 = 明文"]
+        ATT["附件文件（任意二进制）"] --> POOL["内头二进制池"]
+        XML --> IH["内头组装：内层流键 + 附件池 + XML"]
+        POOL --> IH
+        RND -.内层流键-.-> IH
+        IH --> GZ["gzip 压缩"]
+        GZ --> AES["AES-256-CBC 加密（master_key + 外层 IV）"]
+    end
+    MK --> AES
+    AES --> BLK["HMAC-SHA256 分块流包装<br/>每块 [ HMAC | 长度 | 数据 ]（块键由 hmac_key 派生）"]
+    HK --> BLK
+    BLK --> HDR["写外层头：签名/版本 + cipher UUID + 压缩标志<br/>+ IV + master seed + KDF 参数与盐"]
+    RND -.IV/seed/盐-.-> HDR
+    HDR --> HASH["头 SHA-256 + 头 HMAC（hmac_key）"]
+    HK --> HASH
+    HASH --> FILE[("vault.kdbx 落盘")]

@@ -201,8 +201,9 @@ fn below_memory_floor_rejected() {
 }
 
 #[test]
-fn mobile_default_params_dr010_interim() {
-    // DR-010 过渡默认：m=64MiB（红线 #6 硬下限）/ t=4 / p=4（终态=init 校准，移植后随 DR-010 终态更新）
+fn mobile_default_params_dr011_fallback() {
+    // DR-011：终态=新建库走 calibrate_kdf（m=64MiB/t∈[2,8]/p=4 校准至 ~1s）；
+    // FfiKdfParams::default（t=4/p=4）降级为"跳过校准"兜底（fixture/测试口径），数值不变
     let d = FfiKdfParams::default();
     assert_eq!(d.memory_kib, 64 * 1024);
     assert_eq!(d.iterations, 4);
@@ -275,6 +276,43 @@ fn write_path_add_edit_save_roundtrip() {
     .expect("reopen 2");
     let e = vault3.find_entry("New Entry".into()).expect("find edited");
     assert_eq!(e.password.as_deref(), Some("edited-pass"));
+}
+
+#[test]
+fn save_session_uses_resident_factors_and_lock_denies() {
+    // DR-012 A1：open 后凭据因子留驻 actor 线程；save_session 零凭据入参完成保存；
+    // 显式锁库后因子随 actor drop 零化 → save_session 被拒（Format unavailable）
+    let f = make_fixture("savesession", FfiKdfParams::default(), None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db");
+
+    vault
+        .add_entry(draft("Autofill Saved", "saved-pass"))
+        .expect("add_entry");
+    vault
+        .save_session(f.db_path.to_str().unwrap().into())
+        .expect("save_session with resident factors");
+    vault.lock().expect("lock");
+    match vault.save_session(f.db_path.to_str().unwrap().into()) {
+        Err(FfiError::Format { msg }) => assert!(msg.contains("unavailable")),
+        other => panic!("expected Format(unavailable) after lock, got {other:?}"),
+    }
+
+    let vault2 = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("reopen after session save");
+    let e = vault2
+        .find_entry("Autofill Saved".into())
+        .expect("find session-saved entry");
+    assert_eq!(e.password.as_deref(), Some("saved-pass"));
+    assert_eq!(e.username.as_deref(), Some(f.username.as_str()));
 }
 
 #[test]

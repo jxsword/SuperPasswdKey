@@ -1,0 +1,29 @@
+%% SP-F-105/107：vault.kdbx 解密（解锁/打开）全过程——KDBX4 适配层（design_docs/02/09）
+flowchart TD
+    FILE[("vault.kdbx 读取")] --> SIG["校验签名与版本（KDBX 4.1）"]
+    SIG --> OH["解析外层明文头<br/>取出：cipher / KDF 参数(m,t,p,盐) / master seed / 外层 IV"]
+
+    P["主密码（用户输入）"] --> PH["SHA-256(密码 UTF-8 字节)"]
+    KF["vault.keyfile<br/>Base64 解码 → 32 字节原始密钥"] --> COMP["复合密钥 = SHA-256( SHA-256(密码) ‖ keyfile 32B )"]
+    PH --> COMP
+    COMP --> ARG["Argon2id(复合密钥, 头中的盐与参数)<br/>⏳ 打开耗时的大头"]
+    OH --> ARG
+    ARG --> MK["master_key = SHA-256( master seed ‖ Argon2id 结果 )"]
+    ARG --> HK["hmac_key = SHA-512( master seed ‖ Argon2id 结果 ‖ 0x01 )"]
+
+    OH --> HEADCHK["校验头 SHA-256 + 头 HMAC"]
+    HK --> HEADCHK
+    FILE --> BLKCHK["逐块 HMAC 校验（防篡改）"]
+    HK --> BLKCHK
+    HEADCHK -->|通过| AESD["AES-256-CBC 解密 → gunzip"]
+    BLKCHK -->|通过| AESD
+    MK --> AESD
+
+    HEADCHK -->|不通过| ERR["统一报『凭据错误』（退出码 2）<br/>密码错 / keyfile 错或缺失 / 文件损坏——不区分（防侧信道）"]
+    BLKCHK -->|不通过| ERR
+
+    AESD --> INNER["还原内头：内层流键 + 附件池"]
+    INNER --> PROTVAL["内层 ChaCha20 解密 Protected=True 的密码/TOTP"]
+    PROTVAL --> DB["内存中的完整条目树（keepass-ng Database）<br/>标题/用户名/URL/备注 + 密码 + TOTP + 附件"]
+    INNER --> ATT["附件从二进制池还原"]
+    ATT --> DB

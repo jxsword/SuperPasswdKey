@@ -25,9 +25,10 @@ pub struct FfiKdfParams {
 }
 
 impl Default for FfiKdfParams {
-    /// DR-010 过渡默认（终态=移动端 init 校准，移植 sp-core calibration.rs 后替换）：
-    /// m=64MiB 红线 #6 硬下限不动；t 8→4 使中端真机解锁 ~1.1–1.3s（实测基线 2.2–2.5s），
-    /// 满足 ≤2s 体验线；仅影响 Android 新建库（参数随库文件存储，旧库/互操作不受影响）。
+    /// DR-010 终态已落地（DR-011）：新建库走 `calibrate_kdf`（t∈[2,8]/m=64MiB/p=4 校准至
+    /// ~1s），本默认仅保留为**跳过校准的兜底**（测试 fixture、无校准条件的调用方）。
+    /// m=64MiB 红线 #6 硬下限不动；t=4/p=4 中端真机解锁 ~1.1–1.3s。仅影响以默认参数
+    /// 新建的库（Argon2 参数随 KDBX4 头存储，旧库/互操作不受影响）。
     fn default() -> Self {
         FfiKdfParams {
             memory_kib: 64 * 1024,
@@ -259,6 +260,11 @@ enum VaultCmd {
         factors: CredentialFactors,
         resp: Res<()>,
     },
+    /// DR-012 A1：复用工作线程内驻留的凭据因子（open_db 时随 open 留存）
+    SaveSession {
+        path: String,
+        resp: Res<()>,
+    },
     AddAttachment {
         title: String,
         name: String,
@@ -280,7 +286,9 @@ fn respond<T>(resp: Res<T>, r: Result<T, FfiError>) {
 }
 
 /// 工作线程主体：Database 全程封闭在本线程（满足 keepass_ng !Send 约束）。
-/// 凭据因子仅在 open/save 调用栈内存在，用后即 drop（zeroize）。
+/// DR-012 A1：凭据因子随 open 留驻本线程（Zeroizing 缓冲，锁库/线程退出即 drop 零化），
+/// 供保存场景复用（save_session）；主密码内存驻留窗口=会话期，审查口径见 design_docs/14。
+#[allow(clippy::too_many_lines)]
 fn vault_worker(
     cmd_rx: std::sync::mpsc::Receiver<VaultCmd>,
     path: String,
@@ -297,6 +305,7 @@ fn vault_worker(
             return;
         }
     };
+    let session_factors = f;
     while let Ok(cmd) = cmd_rx.recv() {
         match cmd {
             VaultCmd::FindEntry { title, resp } => respond(
@@ -336,6 +345,11 @@ fn vault_worker(
             } => respond(
                 resp,
                 sp_kdbx::save_atomic(&db, std::path::Path::new(&path), &factors)
+                    .map_err(FfiError::from),
+            ),
+            VaultCmd::SaveSession { path, resp } => respond(
+                resp,
+                sp_kdbx::save_atomic(&db, std::path::Path::new(&path), &session_factors)
                     .map_err(FfiError::from),
             ),
             VaultCmd::AddAttachment {
@@ -439,6 +453,18 @@ impl Vault {
                 factors: factors(password, keyfile_path),
                 resp: tx,
             })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 会话凭据原子保存（DR-012 A1）：复用 open_db 时留驻工作线程的凭据因子，
+    /// 调用方不再持有/传递主密码。库锁定（显式 lock 或空闲超时）后因子随
+    /// actor drop 零化，本方法返回 Format("vault worker unavailable")。
+    /// 主密码内存驻留窗口=会话期（design_docs/14 审查口径）。
+    pub fn save_session(&self, path: String) -> Result<(), FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::SaveSession { path, resp: tx })
             .map_err(|_| worker_unavailable())?;
         rx.recv().map_err(|_| worker_unavailable())?
     }

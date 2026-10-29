@@ -2,7 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:label="SP Spike"
+        android:name=".SpApplication"
+        android:label="SuperPasswdKey"
         android:allowBackup="false"
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.Light">
@@ -16,21 +17,36 @@
             </intent-filter>
         </activity>
 
-        <!-- SP-F-803：Autofill 演示登录页（M1b 验收载体） -->
+        <!-- SP-F-803：Autofill 演示登录页（M1b 验收载体）。
+             exported=false（M1 正式化：exported 最小化；adb shell 持 START_ANY_ACTIVITY 仍可启动） -->
         <activity
             android:name=".DemoLoginActivity"
-            android:exported="true" />
+            android:exported="false" />
 
         <!-- SP-F-803 M1c：webDomain 路径演示（WebView 指定真实源） -->
         <activity
             android:name=".DemoWebActivity"
-            android:exported="true" />
+            android:exported="false" />
 
-        <!-- SP-F-802：解锁 Activity（Autofill 认证回路 + 手动解锁入口） -->
+        <!-- SP-F-802：解锁 Activity（Autofill 认证回路 + 手动解锁入口）；
+             由系统经 PendingIntent 唤起，无需导出 -->
         <activity
             android:name=".UnlockActivity"
-            android:exported="true"
+            android:exported="false"
             android:noHistory="true" />
+
+        <!-- SP-F-805：Autofill 保存确认页（SaveCallback.onSuccess(intentSender) 唤起，
+             finish 即完成/取消保存；密码不回显） -->
+        <activity
+            android:name=".SaveConfirmActivity"
+            android:exported="false" />
+
+        <!-- e2e harness（自 MainActivity 分离，M1 正式化）。
+             exported=true 仅因 adb am start 需带凭据 extras 直驱（API 34 起 shell 无法启动
+             非导出组件）；原 MainActivity launcher 同暴露面，测试专用载体 -->
+        <activity
+            android:name=".TestActivity"
+            android:exported="true" />
 
         <!-- SP-F-803：系统 Autofill 服务（DR-009/design_docs/14） -->
         <service

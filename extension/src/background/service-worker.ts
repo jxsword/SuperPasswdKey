@@ -4,13 +4,18 @@
 // 标签页辅助见 tabs.ts。
 import type {
   ContentMessage,
+  ContentToSwMessage,
   HostEnvelope,
   HostResponse,
   PopupMessage,
   StatusInfo,
 } from "../shared/messages";
 import { HOST_NAME } from "../shared/messages";
+import { SavePendingStore } from "./save-pending";
 import { activeTabId, pageUrl } from "./tabs";
+
+// SP-F-708：登录保存暂存（纯内存，SP-F-707；SW 回收即清空）
+const savePending = new SavePendingStore();
 
 const KEEPALIVE_ALARM = "sp.keepalive";
 const RESPONSE_TIMEOUT_MS = 15_000;
@@ -107,7 +112,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // ---- popup 消息路由 ----
 
 chrome.runtime.onMessage.addListener(
-  (msg: PopupMessage, _sender, sendResponse) => {
+  (msg: PopupMessage | ContentToSwMessage, sender, sendResponse) => {
     (async () => {
       switch (msg?.type) {
         case "status": {
@@ -211,6 +216,77 @@ chrome.runtime.onMessage.addListener(
           } catch (e) {
             sendResponse({ filled: false, reason: (e as Error).message });
           }
+          return;
+        }
+        // ---- SP-F-708：登录自动保存（值仅内存直传；拒绝路径零请求零写入） ----
+        case "sp.captured": {
+          const tabId = sender.tab?.id ?? null;
+          if (tabId === null) {
+            sendResponse({ ok: false, error: "no tab" });
+            return;
+          }
+          savePending.capture(msg.login, tabId);
+          // 同页浮层路径（SPA / preventDefault 场景）：页面仍存活，立即弹出；
+          // 跨导航路径：页面即将卸载，sendMessage 失败属预期（新页面加载时查询）。
+          const banner: ContentMessage = {
+            type: "sp.showSaveBanner",
+            url: msg.login.url,
+            username: msg.login.username,
+          };
+          void chrome.tabs.sendMessage(tabId, banner).catch(() => {});
+          sendResponse({ ok: true });
+          return;
+        }
+        case "sp.queryPendingSave": {
+          // 跨导航浮层路径：新页面加载时查询本 tab 的待保存项
+          const tabId = sender.tab?.id ?? null;
+          const p = tabId === null ? null : savePending.peek(tabId);
+          if (!p) {
+            sendResponse(null);
+            return;
+          }
+          sendResponse({ url: p.url, username: p.username });
+          return;
+        }
+        case "sp.saveConfirmed": {
+          const tabId = sender.tab?.id;
+          const p = tabId === undefined ? null : savePending.peek(tabId);
+          if (tabId === undefined || !p) {
+            sendResponse({ ok: false, error: "no pending save" });
+            return;
+          }
+          try {
+            const r = await hostCall<{ saved: string; title: string }>(
+              "sp.save-login",
+              { url: p.url, username: p.username, password: p.password },
+            );
+            savePending.confirm(tabId);
+            sendResponse({
+              ok: true,
+              saved: r.saved as "added" | "updated",
+              title: r.title,
+            });
+          } catch (e) {
+            const m = (e as Error).message;
+            if (m.startsWith("[badrequest]")) {
+              // 旧 host 不支持 sp.save-login（协议向前兼容语义）
+              savePending.dismiss(tabId);
+              sendResponse({
+                ok: false,
+                error: m,
+                staleHost: true,
+              });
+            } else {
+              // locked 等：保留 pending，浮层可重试
+              sendResponse({ ok: false, error: m });
+            }
+          }
+          return;
+        }
+        case "sp.saveDismissed": {
+          const tabId = sender.tab?.id;
+          if (tabId !== undefined) savePending.dismiss(tabId);
+          sendResponse({ ok: true });
           return;
         }
         default:

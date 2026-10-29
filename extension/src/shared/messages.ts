@@ -46,7 +46,37 @@ export type FillRequest = {
   totp?: string;
 };
 export type PageInfoRequest = { type: "sp.pageInfo" };
-export type ContentMessage = FillRequest | PageInfoRequest;
+/** content → SW：登录提交捕获（SP-F-708；值仅内存直传，绝不落 storage） */
+export interface CapturedLogin {
+  url: string;
+  username: string;
+  password: string;
+}
+
+/** content → SW（SP-F-708 保存流） */
+export type ContentToSwMessage =
+  | { type: "sp.captured"; login: CapturedLogin }
+  | { type: "sp.queryPendingSave" }
+  | { type: "sp.saveConfirmed" }
+  | { type: "sp.saveDismissed" };
+
+/** SW → content：跨导航/同页保存确认浮层（密码不回显） */
+export type ShowSaveBannerRequest = {
+  type: "sp.showSaveBanner";
+  url: string;
+  username: string;
+};
+
+export type ContentMessage = FillRequest | PageInfoRequest | ShowSaveBannerRequest;
+
+/** saveConfirmed 响应（staleHost=true 表示旧 host 不支持保存动作） */
+export interface SaveConfirmResponse {
+  ok: boolean;
+  saved?: "added" | "updated";
+  title?: string;
+  error?: string;
+  staleHost?: boolean;
+}
 
 export interface FillResponse {
   filled: boolean;
