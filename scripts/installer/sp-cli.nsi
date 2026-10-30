@@ -21,8 +21,6 @@ SetCompressor /SOLID lzma
 !define UNINSTKEY "SuperPasswdKeyCLI"
 
 !include "MUI2.nsh"
-!include "StrFunc.nsh"
-${Using:StrFunc} StrLoc
 
 Name "${APPNAME} ${VER}"
 OutFile "sp-cli-${VER}-x64-setup.exe"
@@ -45,6 +43,7 @@ Section "!Core files" SEC_CORE
   File "${SRC}\sp.exe"
   File "${SRC}\sp-nmhost.exe"
   File "${SRC}\README.md"
+  File "${SRC}\add-path.ps1"
   SetOutPath "$INSTDIR\docs"
   File "${SRC}\docs\manual\sp_cli_manual.md"
   SetOutPath "$INSTDIR\native-host"
@@ -61,28 +60,14 @@ Section "!Core files" SEC_CORE
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTKEY}" "EstimatedSize" 12000
 SectionEnd
 
+; PATH 修改经 add-path.ps1（.NET RegistryKey 无 1024 长度上限、保类型、幂等、
+; 防覆盖守卫）。禁用 NSIS 原生 ReadRegStr/WriteRegStr 方案——ReadRegStr 对
+; 超过 NSIS_MAX_STRLEN(1024) 的注册表值返回空串，旧逻辑据此把整个用户 PATH
+; 覆盖为仅安装目录（2026-10-30 事故根因，见 docs/reviews/ 事件记录）。
 Section "Add install dir to user PATH (recommended)" SEC_PATH
-  ReadRegStr $R0 HKCU "Environment" "Path"
-  ${StrLoc} $R1 "$R0" "$INSTDIR" 0
-  ${If} $R1 != ""
-    DetailPrint "PATH already contains $INSTDIR (skip)"
-    Goto path_done
-  ${EndIf}
-  ${If} $R0 == ""
-    StrCpy $R0 "$INSTDIR"
-  ${Else}
-    StrCpy $R0 "$R0;$INSTDIR"
-  ${EndIf}
-  ; 保留可展开条目语义：原 PATH 含 %VAR% 时写 REG_EXPAND_SZ
-  ${StrLoc} $R2 "$R0" "%" 0
-  ${If} $R2 != ""
-    WriteRegExpandStr HKCU "Environment" "Path" "$R0"
-  ${Else}
-    WriteRegStr HKCU "Environment" "Path" "$R0"
-  ${EndIf}
-  SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
-  DetailPrint "User PATH updated: $INSTDIR (new terminals only)"
-path_done:
+  nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\add-path.ps1" -InstallDir "$INSTDIR"'
+  Pop $0
+  DetailPrint "add-path.ps1 exit code: $0"
 SectionEnd
 
 Section "Uninstall"
