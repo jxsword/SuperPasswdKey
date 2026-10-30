@@ -21,7 +21,7 @@ use tauri::{
     Manager, State,
 };
 
-use session::{describe, Session, SessionStatus};
+use session::{describe, EntryDetailDto, EntrySummaryDto, Session, SessionStatus};
 use settings::SettingsFile;
 
 /// 会话锁（Mutex<Session>；Vault Send+!Sync 由 Mutex 补足 Sync）。
@@ -78,6 +78,42 @@ fn save_settings(s: SettingsFile) -> Result<SettingsFile, String> {
     Ok(s)
 }
 
+// ---------- GUI 条目浏览（S1a MVP；design_docs/16 §4 command 面映射） ----------
+
+/// 条目摘要列表（惰性超时检查；锁定态返回 locked 语义供前端提示重新解锁）
+#[tauri::command]
+fn entry_list(state: State<SessionState>) -> Result<Vec<EntrySummaryDto>, String> {
+    state.0.lock().expect("session poisoned").entry_list()
+}
+
+/// 条目详情（含密码——仅详情视图瞬态展示，不落前端存储，SP-F-707 口径）
+#[tauri::command]
+fn entry_get(state: State<SessionState>, title: String) -> Result<EntryDetailDto, String> {
+    state.0.lock().expect("session poisoned").entry_get(&title)
+}
+
+/// 条目当前 TOTP 码（RFC 6238 本地生成）
+#[tauri::command]
+fn entry_totp(state: State<SessionState>, title: String) -> Result<String, String> {
+    state.0.lock().expect("session poisoned").entry_totp(&title)
+}
+
+/// 复制到剪贴板（arboard 写入 + 30s 超时清空，对齐 CLI sp clip 语义；
+/// 后台线程清空不阻塞 UI；Win+V 历史不受 sp 控制——提示文案与 CLI 一致）
+#[tauri::command]
+fn clip_copy(text: String) -> Result<(), String> {
+    let mut ctx = arboard::Clipboard::new().map_err(|e| format!("初始化剪贴板失败：{e}"))?;
+    ctx.set_text(text)
+        .map_err(|e| format!("写入剪贴板失败：{e}"))?;
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        if let Ok(mut c) = arboard::Clipboard::new() {
+            let _ = c.set_text(String::new());
+        }
+    });
+    Ok(())
+}
+
 fn main() {
     // 设置先于会话装配：双超时取自 settings.json（损坏回落默认值）
     let cfg = settings::load_or_default();
@@ -98,7 +134,11 @@ fn main() {
             lock_now,
             touch,
             get_settings,
-            save_settings
+            save_settings,
+            entry_list,
+            entry_get,
+            entry_totp,
+            clip_copy
         ])
         .setup(move |app| {
             // 窗口策略：托盘实例启动即弹解锁窗（DR-013"每次进程启动首次主密码"）；

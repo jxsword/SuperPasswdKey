@@ -9,7 +9,7 @@
 | 会话 | 阶段 | 内容 | 交付物（给下阶段） | 状态 |
 |---|---|---|---|---|
 | #1 | **S0 卫生与同步** | push develop、.gitignore 微调、AGENTS.md 扩充、CI 缓存 6 项、develop→main 合并 | 同步的 main/develop + 扩充的 AGENTS.md + 缓存 CI | ✅ 全部完成（交付说明：[S0-DELIVERY-2026-10-30.md](S0-DELIVERY-2026-10-30.md)） |
-| #2 | **S1a GUI 设计+MVP** | design_docs/16（Vue3+Vite/DR-014/信息架构/安全边界）+ 脚手架 + 解锁集成/列表/搜索/详情 | design_docs/16 + GUI MVP | ☐ |
+| #2 | **S1a GUI 设计+MVP** | design_docs/16（Vue3+Vite/DR-014/信息架构/安全边界）+ 脚手架 + 解锁集成/列表/搜索/详情 | design_docs/16 + GUI MVP | ✅ 全部完成（交付说明：[S1a-DELIVERY-2026-10-30.md](S1a-DELIVERY-2026-10-30.md)） |
 | #3 | **S3 Mimosa 基线审计** | 全仓审计（CLI+扩展+桌面+GUI MVP）+ 修复 | 审计报告 + 修复 | ☐ |
 | #4 | **S1b GUI 写路径** | 条目 CRUD/附件/TOTP | 功能完整 GUI | ☐ |
 | #5 | **S1c 收尾+发布** | 导入导出向导/注入启动器/.env 工作流文档 + 发布前 Mimosa 复审 + **v0.4.0** 发版 | v0.4.0 | ☐ |
@@ -171,7 +171,7 @@
 ## §进度标记
 
 - [x] S0 卫生与同步（会话 #1）
-- [ ] S1a GUI 设计+MVP（会话 #2）
+- [x] S1a GUI 设计+MVP（会话 #2）
 - [ ] S3 Mimosa 基线审计（会话 #3）
 - [ ] S1b GUI 写路径（会话 #4）
 - [ ] S1c 收尾+v0.4.0 发布（会话 #5）

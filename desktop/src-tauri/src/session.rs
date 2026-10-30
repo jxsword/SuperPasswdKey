@@ -91,8 +91,7 @@ impl Session {
     }
 
     /// 机密操作前置：惰性超时检查（过期即锁库清零），返回可用 Vault。
-    /// 脚手架期仅 status() 消费；任务 3 NM host 嵌入后供条目操作命令使用。
-    #[allow(dead_code)]
+    /// GUI 条目操作（entry_list/entry_get/entry_totp）与 NM 适配器共用此语义链路。
     pub fn active_vault(&mut self) -> Option<&Vault> {
         if self.vault.is_some() && self.expired() {
             self.lock_now();
@@ -177,6 +176,81 @@ impl Session {
             vault_exists: path.exists(),
         }
     }
+
+    /// 条目摘要列表（GUI entry_list；惰性超时检查，过期即锁库清零）。
+    pub fn entry_list(&mut self) -> Result<Vec<EntrySummaryDto>, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        v.list_entry_summaries()
+            .map(|s| s.into_iter().map(EntrySummaryDto::from).collect())
+            .map_err(|e| describe(&e))
+    }
+
+    /// 条目详情（GUI entry_get；含密码——仅详情视图瞬态展示，不落前端存储）。
+    pub fn entry_get(&mut self, title: &str) -> Result<EntryDetailDto, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        v.find_entry(title.to_string())
+            .map(EntryDetailDto::from)
+            .map_err(|e| describe(&e))
+    }
+
+    /// 条目当前 TOTP 码（GUI entry_totp；RFC 6238 本地生成，SP-F-601 单源）。
+    pub fn entry_totp(&mut self, title: &str) -> Result<String, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        v.entry_totp_now(title.to_string())
+            .map_err(|e| describe(&e))
+    }
+}
+
+// ---------- GUI DTO（serde 序列化面；字段与前端 api.ts 镜像一一对应） ----------
+
+/// 条目摘要 DTO（不含密码/TOTP，SP-F-706 语义）
+#[derive(serde::Serialize, Debug)]
+pub struct EntrySummaryDto {
+    pub title: String,
+    pub username: Option<String>,
+    pub url: Option<String>,
+    pub has_otp: bool,
+}
+
+impl From<sp_kffi::FfiEntrySummary> for EntrySummaryDto {
+    fn from(s: sp_kffi::FfiEntrySummary) -> Self {
+        EntrySummaryDto {
+            title: s.title,
+            username: s.username,
+            url: s.url,
+            has_otp: s.has_otp,
+        }
+    }
+}
+
+/// 条目详情 DTO（含密码——仅经 entry_get 单条显式取回，详情视图瞬态展示）
+#[derive(serde::Serialize)]
+pub struct EntryDetailDto {
+    pub title: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub url: Option<String>,
+    pub notes: Option<String>,
+    pub otp: Option<String>,
+}
+
+impl From<sp_kffi::FfiEntry> for EntryDetailDto {
+    fn from(e: sp_kffi::FfiEntry) -> Self {
+        EntryDetailDto {
+            title: e.title,
+            username: e.username,
+            password: e.password,
+            url: e.url,
+            notes: e.notes,
+            otp: e.otp,
+        }
+    }
 }
 
 /// FfiError → 类别文案（只映射类别，不携带凭据值——SP-F-804 审查口径）
@@ -223,6 +297,17 @@ mod tests {
                 },
             )
             .expect("add entry");
+            sp_kdbx::add_entry(
+                &mut db,
+                &EntryModel {
+                    title: "OtpEntry".into(),
+                    username: Some("otp-user".into()),
+                    password: Some(SecureString::new("otp-pass".into())),
+                    otp: Some("otpauth://totp/Test?secret=JBSWY3DPEHPK3PXP&issuer=Test".into()),
+                    ..Default::default()
+                },
+            )
+            .expect("add otp entry");
             sp_kdbx::save_atomic(&db, &path, &factors).expect("seed save");
             Fixture(path)
         }
@@ -292,5 +377,98 @@ mod tests {
         s.unlock(&f.0, "test-db-pass", None).expect("unlock #2");
         assert!(s.unlocked_at > t1, "absolute timer must reset on re-unlock");
         assert!(s.status().unlocked);
+    }
+
+    #[test]
+    fn entry_list_after_unlock_returns_summaries() {
+        let f = Fixture::new("gui-list");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let list = s.entry_list().expect("entry_list");
+        assert_eq!(list.len(), 2);
+        let demo = list.iter().find(|e| e.title == "Demo").expect("Demo");
+        assert_eq!(demo.username.as_deref(), Some("demo-user"));
+        assert!(!demo.has_otp);
+        let otp = list
+            .iter()
+            .find(|e| e.title == "OtpEntry")
+            .expect("OtpEntry");
+        assert!(otp.has_otp);
+    }
+
+    #[test]
+    fn entry_list_locked_returns_locked_error() {
+        let _f = Fixture::new("gui-locked");
+        let mut s = Session::new(Settings::default());
+        // 未解锁即调用 → locked 语义
+        let err = s.entry_list().expect_err("locked");
+        assert!(err.contains("锁定"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn entry_get_returns_detail_with_password() {
+        let f = Fixture::new("gui-get");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let d = s.entry_get("Demo").expect("entry_get");
+        assert_eq!(d.username.as_deref(), Some("demo-user"));
+        assert_eq!(d.password.as_deref(), Some("demo-pass"));
+        assert_eq!(d.url.as_deref(), Some("https://demo.local"));
+    }
+
+    #[test]
+    fn entry_get_missing_returns_not_found() {
+        let f = Fixture::new("gui-missing");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        match s.entry_get("no-such") {
+            Err(err) => assert!(err.contains("不存在"), "unexpected: {err}"),
+            Ok(_) => panic!("expected not-found error"),
+        }
+    }
+
+    #[test]
+    fn entry_totp_generates_code() {
+        let f = Fixture::new("gui-totp");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let code = s.entry_totp("OtpEntry").expect("entry_totp");
+        assert!(!code.is_empty());
+        assert!(
+            code.len() >= 6 && code.len() <= 8,
+            "TOTP code length: {code}"
+        );
+        assert!(
+            code.chars().all(|c| c.is_ascii_digit()),
+            "TOTP code digits: {code}"
+        );
+    }
+
+    #[test]
+    fn entry_totp_without_otp_errors() {
+        let f = Fixture::new("gui-nootp");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        assert!(
+            s.entry_totp("Demo").is_err(),
+            "entry without otp must error"
+        );
+    }
+
+    #[test]
+    fn entry_list_expired_session_locks_lazily() {
+        // idle=0 → 解锁后首次 entry_list 触发惰性锁库 → locked 语义（与 status 同链路）
+        let f = Fixture::new("gui-expire");
+        let mut s = Session::new(Settings {
+            idle_ms: 0,
+            absolute_ms: u64::MAX,
+        });
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let err = s.entry_list().expect_err("lazy lock");
+        assert!(err.contains("锁定"), "unexpected: {err}");
+        assert!(
+            !s.status().unlocked,
+            "session must be locked after lazy expiry"
+        );
     }
 }
