@@ -1,6 +1,6 @@
 # 16 桌面 GUI：Vue 3 + Vite 全功能界面（DR-014）
 
-- 状态：v1.0（2026-10-30，S1a 设计与 MVP 落地）
+- 状态：v1.1（2026-10-31，新增 §8 手工验收清单与启动指引——GUI 启动方式、sp-desktop.exe 与 sp.exe 关系、mermaid 协作图；v1.0 2026-10-30，S1a 设计与 MVP 落地）
 - 上游依赖：design_docs/15（桌面形态，托盘/会话/NM 嵌入基座）、DR-013（凭据驻留策略）、DR-012（actor 内凭据因子）、SP-F-9xx（SRS §3.9 桌面需求）
 - 范围：S1a = 设计与只读 MVP（解锁/列表/搜索/详情/TOTP/复制）；写路径（条目 CRUD/附件/TOTP 编辑）在 S1b，导入导出/注入启动器在 S1c
 
@@ -130,6 +130,7 @@ GUI 操作 ↔ Tauri command ↔ sp-kffi/Vault 调用（机密纪律：password 
 - 真实库解锁 → 列表加载 → 搜索过滤 → 点击查看详情（含 TOTP 动态码 30s 轮询 + 复制按钮）。
 - 锁定态下列表/详情/TOTP 请求返回 locked 语义，前端提示重新解锁。
 - 组件测试（vitest）+ Rust session 测试回归全绿；CI 七 job 全绿。
+- 真实库端到端手工验收按 §8.4 清单执行（启动方式见 §8.1）。
 
 ## 7. 已知边界与后续
 
@@ -137,3 +138,117 @@ GUI 操作 ↔ Tauri command ↔ sp-kffi/Vault 调用（机密纪律：password 
 - 搜索为客户端即时过滤（条目量级为个人库，MVP 不做服务端搜索；量大后可加索引）。
 - 单窗口视图切换无路由库；S1b 写路径表单复杂化后评估引入。
 - 注入启动器/导入导出向导在 S1c；Mimosa 完整审计在 S3（GUI MVP 落地后的干净基线）。
+
+## 8. 手工验收清单与启动指引
+
+### 8.1 GUI 程序位置与启动方式
+
+| 方式 | 位置 / 命令 | 说明 |
+|---|---|---|
+| **直接运行构建产物** | `desktop\src-tauri\target\release\sp-desktop.exe` | `cd desktop/src-tauri && cargo tauri build` 产出；双击或命令行启动。启动即弹主窗（解锁面板），托盘常驻；关窗=隐藏到托盘（进程与会话保留） |
+| **NSIS 安装包** | `desktop\src-tauri\target\release\bundle\nsis\SuperPasswdKey_0.3.0_x64-setup.exe`（≈2.3 MiB） | 安装后从开始菜单"SuperPasswdKey"启动；发布线（tag `v*`）由 CI 产出到 Release 资产 |
+| **开发模式** | `cd desktop/src-tauri && cargo tauri dev` | beforeDevCommand 自动起 Vite dev server（localhost:1420）；前端热更新，Rust 改动触发重编重启 |
+| **开机自启** | GUI 顶栏"设置"→ 勾选"开机自启" | 写 HKCU Run（免管理员），`reg query` 可验证 |
+| NM 实例 | 用户**不手动启动** | 浏览器扩展 connectNative 经注册表 manifest 拉起第二个 sp-desktop.exe 实例（NM host 模式），生命周期随浏览器断开（stdin EOF）结束 |
+
+### 8.2 sp-desktop.exe 与 sp.exe 的关系
+
+同一仓库的两条交付线，共享内核与同一库文件，进程与会话完全独立：
+
+| 维度 | sp.exe（CLI） | sp-desktop.exe（桌面 GUI） |
+|---|---|---|
+| 所属 workspace | 根 workspace（`crates/sp-cli`） | desktop 独立 workspace（仅 MSVC） |
+| 内核复用方式 | 直连 sp-core / sp-kdbx | 经 sp-kffi 线程封闭 actor（与 Android 同语义，DR-012 A1） |
+| 会话模型 | **每命令独立解锁**，无常驻会话 | **进程内会话**：idle/absolute 双超时（DR-013 桌面口径，每进程首次主密码） |
+| 解锁目标 | 任意 kdbx（`--db` / config.toml default_db） | 固定桌面单库 `%APPDATA%\SuperPasswdKey\vault.kdbx` |
+| 浏览器扩展接入 | sp-nmhost.exe（旧轨，双轨保留） | sp-desktop.exe 单进程嵌入 NM host（主推） |
+| 剪贴板 | `sp clip`（阻塞式 30s 清空） | `clip_copy` command（arboard，后台线程 30s 清空） |
+
+**共享面**：同一 vault.kdbx（KDBX4，KeePassXC 互操作）；语义单源 = sp-core/sp-kdbx（CLI 校验规则、TOTP 生成、URL 匹配均同源，无第二实现）。
+
+**并发注意**：GUI 解锁期间库驻留内存（会话期），MVP 无外部修改检测——CLI/KeePassXC 在 GUI 会话内修改库文件后，GUI 的写操作（S1b 起）可能以内存态覆盖外部改动；MVP 只读操作互不影响。验收时避免 GUI 会话与外部写并发。
+
+```mermaid
+flowchart LR
+    subgraph CLI["sp.exe（CLI，根 workspace）"]
+        C1["命令进程（一次性）<br/>每命令独立解锁"]
+    end
+    subgraph Tray["sp-desktop.exe · 托盘实例<br/>（用户/自启拉起）"]
+        T3["托盘常驻<br/>关窗=隐藏"] -.-> T1
+        T1["GUI 主窗<br/>解锁/列表/搜索/详情/TOTP"]
+        T2["Session<br/>idle 300s / absolute 1800s<br/>（DR-013 双超时）"]
+        T1 --> T2
+    end
+    subgraph NM["sp-desktop.exe · NM 实例<br/>（浏览器 connectNative 拉起）"]
+        N1["NM 循环线程<br/>sp.get-logins / sp.get-secret"]
+        N2["Session（独立计时）"]
+        N3["解锁窗（locked 请求时弹出）"]
+        N1 --> N2
+        N1 -.-> N3
+    end
+    B["浏览器扩展"] -->|"native messaging<br/>manifest → sp-desktop.exe"| N1
+    V[("vault.kdbx<br/>%APPDATA%\SuperPasswdKey<br/>KDBX4")]
+    C1 -->|"sp-kdbx 直连"| V
+    T2 -->|"sp-kffi actor"| V
+    N2 -->|"sp-kffi actor"| V
+```
+
+### 8.3 GUI 会话协作原理
+
+解锁 → 浏览 → 复制 → 超时锁定 → 重解锁的完整时序（所有机密操作经 Rust 惰性超时检查，前端轮询仅为展示）：
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant F as 前端（Vue）
+    participant R as Rust（Tauri command）
+    participant A as sp-kffi actor
+
+    U->>F: 输入主密码
+    F->>R: unlock(password, keyfile)
+    R->>A: open_db（凭据因子留驻 actor，DR-012 A1）
+    A-->>R: Vault
+    R-->>F: SessionStatus(unlocked, 双超时倒计时)
+    F->>R: entry_list（惰性超时检查 → touch）
+    R->>A: list_entry_summaries
+    A-->>F: 摘要列表（不含密码/TOTP，SP-F-706）
+    U->>F: 点击条目
+    F->>R: entry_get(title)
+    R->>A: find_entry
+    A-->>F: 详情（密码仅瞬态掩码展示）
+    U->>F: 点击"复制"
+    F->>R: clip_copy(text)
+    R->>R: arboard 写入 → 后台线程 30s 清空
+    Note over R,A: idle/absolute 任一到<br/>惰性检查即锁库清零
+    F->>R: entry_totp（会话已过期）
+    R--xF: "会话已锁定，请重新解锁"
+    F->>U: 切回解锁面板（每 5s 轮询收敛）
+```
+
+### 8.4 手工验收清单（真实库端到端）
+
+**前置准备**：
+1. 按 §8.1 任一方式获得并启动 sp-desktop.exe（托盘实例）；
+2. 准备库：`sp init --db "%APPDATA%\SuperPasswdKey\vault.kdbx"`（若已有库跳过），并建 2 条条目，其中 1 条带 TOTP：
+   ```bash
+   sp item create github -u alice --url https://github.com
+   sp item create work-vpn -u bob --totp "otpauth://totp/Test?secret=JBSWY3DPEHPK3PXP&issuer=Test"
+   ```
+3. 备好剪贴板验证环境（记事本或任意可粘贴处）。
+
+| # | 步骤 | 预期结果 | 覆盖 |
+|---|---|---|---|
+| A1 | 启动 sp-desktop.exe | 主窗弹出（解锁面板），托盘图标出现 | SP-F-901 |
+| A2 | 点主窗 X 关闭 → 托盘左键单击 | 窗口隐藏、进程保留；托盘单击重新唤出 | SP-F-901 |
+| B1 | 输入错误主密码解锁 | 提示"解锁失败：主密码或 keyfile 不正确"，保持锁定态 | SP-F-902 |
+| B2 | 输入正确主密码解锁 | 约 1–3s（KDF）后进入主界面，条目列表自动加载 | SP-F-902 |
+| C1 | 搜索框输入子串（如 "git"） | 列表即时过滤（命中标题/用户名/URL） | SP-F-908 |
+| C2 | 清空搜索框 | 全量列表恢复 | SP-F-908 |
+| D1 | 点击条目查看详情 | 只读字段展示；密码显示为掩码 ●●●●●●●●（无明文回显） | SP-F-908 / SP-F-707 |
+| D2 | 点击密码"复制" → 立即粘贴 → 等待 30s 再粘贴 | 提示"已复制 密码，30 秒后自动清空"；首次粘贴得到正确值；30s 后粘贴为空 | SP-F-908（clip 语义单源） |
+| D3 | 打开带 TOTP 条目 → 观察 30s → 复制动态码粘贴 | 显示 6–8 位数字动态码；约 30s 自动刷新；粘贴值与 `sp item get work-vpn --totp` 一致 | SP-F-601 / SP-F-908 |
+| E1 | 设置面板：空闲锁定改 1 分钟 → 保存 → 重启应用 → 解锁后闲置 | 保存提示"超时配置重启后生效"；重启后顶栏倒计时递减，闲置 1 分钟自动切回解锁面板 | SP-F-903 / SP-F-904 |
+| E2 | 解锁后点顶栏"锁定" | 立即切回解锁面板（列表/详情内存态随视图卸载丢弃） | SP-F-903 / SP-F-707 |
+| F1 | 设置面板勾选自启 → `reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v SuperPasswdKey`；再取消勾选 | 勾选后注册表值存在（带引号 exe 全路径）；取消后值清零 | SP-F-905 |
+| G1 | GUI 解锁期间另开终端：`sp item list --db "%APPDATA%\SuperPasswdKey\vault.kdbx"` | CLI 独立解锁（再输一次主密码）后正常列出——两进程并存、会话互不干扰 | DR-013（每进程首次主密码） |
+| — | ⚠️ 全程注意 | GUI 解锁期间勿在 CLI/KeePassXC 修改同一库（MVP 无外部修改检测，见 §8.2 并发注意） | — |
