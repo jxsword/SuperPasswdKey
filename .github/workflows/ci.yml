@@ -8,14 +8,16 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # —— S0 CI 缓存配方：钉版号即缓存 key 分量，升级依赖时同步 bump ——
+  TAURI_CLI_VERSION: "2.12.4"
+  CARGO_NDK_VERSION: "4.1.2"
+  KEEPASSXC_VERSION: "2.7.12"
 
 jobs:
   windows:
     runs-on: windows-latest
     permissions:
       contents: write  # tag 流程：gh release create/upload（draft Release，DR-007）
-    env:
-      SP_KEEPASSXC_CLI: "C:\\Program Files\\KeePassXC\\keepassxc-cli.exe"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,6 +29,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          # 不加 cache: pnpm——PR 运行不执行 pnpm install，store 目录不存在会导致
+          # setup-node 后置保存路径校验失败、整个 job 红（首跑实测 2026-10-30）；
+          # tag 构建收益仅 30-60s，不值得。extension job 的 pnpm 缓存保留。
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
@@ -36,8 +41,30 @@ jobs:
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
 
-      - name: Install KeePassXC (round-trip interop tests)
-        run: choco install keepassxc -y --no-progress
+      - name: Cache KeePassXC portable (round-trip interop tests)
+        uses: actions/cache@v4
+        id: keepassxc
+        with:
+          path: keepassxc-portable
+          key: keepassxc-${{ env.KEEPASSXC_VERSION }}-windows-x64
+
+      - name: Download KeePassXC portable (cache miss only)
+        if: steps.keepassxc.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = "${{ env.KEEPASSXC_VERSION }}"
+          $zip = "KeePassXC-$tag-Win64.zip"
+          Invoke-WebRequest -Uri "https://github.com/keepassxreboot/keepassxc/releases/download/$tag/$zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath keepassxc-portable
+
+      - name: Locate keepassxc-cli（SP_KEEPASSXC_CLI 指向解压路径）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cli = (Get-ChildItem -Path keepassxc-portable -Recurse -Filter keepassxc-cli.exe | Select-Object -First 1).FullName
+          if (-not $cli) { throw "keepassxc-cli.exe not found under keepassxc-portable" }
+          Add-Content -Path $env:GITHUB_ENV -Value "SP_KEEPASSXC_CLI=$cli"
 
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
@@ -54,9 +81,17 @@ jobs:
           RUSTFLAGS: -C target-feature=+crt-static
         run: cargo build --release --workspace
 
-      - name: Install tauri-cli (desktop bundle, tag only)
+      - name: Cache tauri-cli (desktop bundle, tag only)
         if: startsWith(github.ref, 'refs/tags/v')
-        run: cargo install tauri-cli --locked
+        uses: actions/cache@v4
+        id: tauri_cli_win
+        with:
+          path: ~/.cargo/bin/cargo-tauri.exe
+          key: tauri-cli-${{ env.TAURI_CLI_VERSION }}-windows-x64
+
+      - name: Install tauri-cli (desktop bundle, tag only)
+        if: startsWith(github.ref, 'refs/tags/v') && steps.tauri_cli_win.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version ${{ env.TAURI_CLI_VERSION }} --locked
 
       - name: Build desktop bundle (NSIS, tag only; crt-static 自包含)
         if: startsWith(github.ref, 'refs/tags/v')
@@ -196,8 +231,16 @@ jobs:
       - name: cargo test
         run: cargo test
 
+      - name: Cache tauri-cli
+        uses: actions/cache@v4
+        id: tauri_cli
+        with:
+          path: ~/.cargo/bin/cargo-tauri.exe
+          key: tauri-cli-${{ env.TAURI_CLI_VERSION }}-windows-x64
+
       - name: Install tauri-cli
-        run: cargo install tauri-cli --locked
+        if: steps.tauri_cli.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version ${{ env.TAURI_CLI_VERSION }} --locked
 
       - name: tauri build (release + NSIS bundle)
         run: cargo tauri build
@@ -222,8 +265,16 @@ jobs:
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
 
+      - name: Cache cargo-ndk
+        uses: actions/cache@v4
+        id: cargondk
+        with:
+          path: ~/.cargo/bin/cargo-ndk
+          key: cargo-ndk-${{ env.CARGO_NDK_VERSION }}-linux-x64
+
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
+        if: steps.cargondk.outputs.cache-hit != 'true'
+        run: cargo install cargo-ndk --version ${{ env.CARGO_NDK_VERSION }} --locked
 
       - name: Cross-compile (x86_64 emulator + aarch64 release target)
         run: |
@@ -263,8 +314,16 @@ jobs:
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
 
+      - name: Cache cargo-ndk
+        uses: actions/cache@v4
+        id: cargondk
+        with:
+          path: ~/.cargo/bin/cargo-ndk
+          key: cargo-ndk-${{ env.CARGO_NDK_VERSION }}-linux-x64
+
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
+        if: steps.cargondk.outputs.cache-hit != 'true'
+        run: cargo install cargo-ndk --version ${{ env.CARGO_NDK_VERSION }} --locked
 
       - name: Cross-compile sp-kffi (x86_64 emulator)
         run: |
@@ -277,6 +336,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
 
       - name: Generate fixture (test-only credentials, SRS §5)
         run: |
@@ -297,6 +357,45 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Resolve runner image version（SDK/AVD 缓存 key 分量）
+        run: echo "RUNNER_IMAGE=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
+
+      - name: Cache Android SDK system images
+        uses: actions/cache@v4
+        with:
+          # 只缓存 system-images：emulator/platform-tools 是 runner 预装目录（root 属主），
+          # 恢复时原地覆盖报 Cannot utime → 整包作废（2026-10-30 run 实测）
+          path: /usr/local/lib/android/sdk/system-images
+          key: android-sdk-images-api34-google_apis-x86_64-v2-${{ env.RUNNER_IMAGE }}
+
+      - name: Cache AVD snapshot
+        uses: actions/cache@v4
+        id: avd
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+            ~/.android/debug.keystore
+          key: avd-api34-google_apis-x86_64-v2-${{ env.RUNNER_IMAGE }}
+
+      - name: Clean stale AVD locks（异常退出残留锁会卡死下次启动）
+        run: find ~/.android/avd -name "*.lock" -delete 2>/dev/null || true
+
+      - name: Generate AVD snapshot for caching (cache miss only)
+        if: steps.avd.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disk-size: 2048M
+          cores: 4
+          emulator-boot-timeout: 900
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "Generated AVD snapshot for caching."
+
       - name: Run emulator e2e (TestActivity assertions)
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -306,8 +405,12 @@ jobs:
           disk-size: 2048M
           cores: 4
           emulator-boot-timeout: 900
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
+            # 快照里可能带有旧调试签名的同包名应用，先卸载再装，规避签名不匹配（2026-10-30 run 实测）
+            adb uninstall com.superpasswdkey.spike >/dev/null 2>&1 || true
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             adb push build/test_vault.kdbx /data/local/tmp/
             adb shell run-as com.superpasswdkey.spike mkdir -p files

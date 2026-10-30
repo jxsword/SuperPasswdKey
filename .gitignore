@@ -1,5 +1,4 @@
 # Build artifacts
-/target
 **/target/
 
 # 密码库与密钥材料 —— 绝不入仓（红线）
@@ -38,7 +37,7 @@ minisign.key
 
 # 本地构建/演示临时产物
 /build/
-desktop/target/
+/dist/
 dist-repro/
 
 /.cache/
