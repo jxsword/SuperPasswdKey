@@ -29,8 +29,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: extension/pnpm-lock.yaml
+          # 不加 cache: pnpm——PR 运行不执行 pnpm install，store 目录不存在会导致
+          # setup-node 后置保存路径校验失败、整个 job 红（首跑实测 2026-10-30）；
+          # tag 构建收益仅 30-60s，不值得。extension job 的 pnpm 缓存保留。
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
