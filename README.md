@@ -86,6 +86,32 @@ minisign -V -p minisign.pub -m SHA256SUMS.txt
 
 维护者签名流程见 `scripts/sign-release.ps1`（本地离线签名，私钥不经 CI）。**本仓库签名公钥 minisign.pub 指纹（key ID）：`52113F262DA49B62`**——公钥四渠道分发（本仓库根 / Release 资产 / [jxsword.github.io](https://jxsword.github.io/) / Web Archive 首发快照），若各渠道公钥不一致，以 Pages 页为准并视为安全事故。
 
+### 签名密钥轮换（口令遗失/疑似泄露时）
+
+minisign 无密钥吊销机制——轮换 = 换新密钥对 + 更新全部公钥渠道 + 如实声明。完整命令：
+
+```powershell
+# ① 生成新密钥对（在你自己的 PowerShell 会话；目录自定；新口令自定并立即记入密码管理器）
+mkdir C:\keys\minisign-rotated; cd C:\keys\minisign-rotated
+minisign -G        # 提示两次输入新口令；当前目录生成 minisign.key / minisign.pub
+
+# ② 安装新私钥到签名位置（覆盖旧私钥；旧私钥所有副本随后销毁）
+Copy-Item .\minisign.key $env:USERPROFILE\.minisign\minisign.key -Force
+Copy-Item .\minisign.pub $env:USERPROFILE\.minisign\minisign.pub -Force
+
+# ③ 更新仓库公钥（四渠道之 A；经 PR 提交，release notes 注明轮换）
+Copy-Item .\minisign.pub E:\proj\SuperPasswdKey\minisign.pub
+
+# ④ 更新其余公钥渠道（维护者动作）：GitHub Pages、Web Archive 新快照（渠道 C/D）
+
+# ⑤ 重签既有 Release（脚本以新私钥重签并 --clobber 覆盖 .minisig）
+& E:\proj\SuperPasswdKey\scripts\sign-release.ps1 -Tag <tag>
+```
+
+- **声明义务**：Release notes 与 README 验签节必须写明旧 key ID 作废及原因（口令遗失/泄露）、轮换日期、新 key ID。
+- **旧私钥处置**：所有副本（本机/ U 盘/打印）销毁；旧 `.minisig` 签名随旧 key ID 一并失效。
+- 2026-10-30 曾发生口令遗失 scare（最终找回，未轮换）——处置过程见 [docs/reviews/incident_用户PATH覆盖与恢复_2026-10-30.md](docs/reviews/incident_用户PATH覆盖与恢复_2026-10-30.md)。
+
 ## License
 
 AGPL-3.0-only. See [LICENSE](LICENSE).
