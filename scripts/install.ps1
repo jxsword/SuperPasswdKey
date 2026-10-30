@@ -24,8 +24,20 @@ if (Test-Path (Join-Path $here "sp-nmhost.exe")) {
 Write-Host "installed: $InstallDir"
 
 # 2) 用户级 PATH（幂等追加；.NET SetEnvironmentVariable 自动广播 WM_SETTINGCHANGE）
+#    守卫（2026-10-30 事件）：GetEnvironmentVariable 对超长值正常返回，但若返回空而
+#    注册表实际存在非空 Path 值（异常状态）→ 立即中止，绝不覆盖。
 if ($AddPath) {
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment")
+    $rawExists = $envKey -and ($envKey.GetValueNames() -contains "Path")
+    $rawValue = ""
+    if ($rawExists) {
+        $rawValue = $envKey.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $envKey.Close()
+    }
+    if (-not $userPath -and $rawValue) {
+        throw "用户 PATH 读取为空但注册表存在非空值（长度 $($rawValue.Length)）——为防覆盖已中止；请手动检查 HKCU\Environment\Path"
+    }
     $parts = @()
     if ($userPath) { $parts = $userPath.Split(";") | Where-Object { $_ -ne "" } }
     if ($parts -notcontains $InstallDir) {
