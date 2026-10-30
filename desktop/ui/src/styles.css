@@ -1,0 +1,39 @@
+/* SuperPasswdKey 桌面 GUI 全局样式（沿用 v0.3.0 静态页视觉基调） */
+:root {
+  color-scheme: light;
+  --teal: #009688;
+  --teal-dark: #00796b;
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --border: #e0e0e0;
+  --text: #263238;
+  --muted: #607d8b;
+  --danger: #c62828;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button {
+  font-family: inherit;
+}
+
+input {
+  font-family: inherit;
+}

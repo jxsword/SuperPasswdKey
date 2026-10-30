@@ -103,3 +103,11 @@
 - 理由: 用户需求逐字映射；豁免最小化+默认关闭+明示确认+可逆（关即清）；行业对标（Bitwarden/KeePassDX 均为可选开启+Keystore 包裹+生物替代）且本项目每 boot 策略更严；批次拆分尊重"优先 Windows"，共享论证避免边界分裂。
 - 影响: 批次1(desktop/ 新 Tauri 应用: 托盘/解锁窗/会话双超时/HKCU 自启、sp-nmhost NM 协议库化嵌入、design_docs/15、SRS SP-F-9xx)；批次2(sp-kffi Keystore 包裹接口、Android 解锁策略、design_docs/14 v1.3)。桌面单进程架构（Tauri 壳内嵌 NM host，免跨进程会话共享，收敛 DR-006 遗留跨进程缓存 backlog）随任务书_step7 设计闸门确认。
 - 记录时间 / 会话: 2026-10-29 / SuperPasswdKey 步骤 6 会话（保存场景落地 + step7 规划）
+
+## DR-014 2026-10-30 桌面 GUI 前端选型：Vue 3 + Vite（修订 design_docs/15"零 Node"闸门） [状态: 生效]
+- 背景: design_docs/15 §3 将 desktop/ui/ 定为"静态零 Node 依赖"前端（v0.3.0 已交付解锁窗+设置面板）。S1a 起桌面壳从"托盘+解锁"扩展为全功能 GUI（对标 1Password 桌面端）：大条目列表/即时搜索/详情侧栏/TOTP 轮询/复制按钮，S1b/S1c 还要叠加条目编辑器/导入导出向导/注入启动器——手写 vanilla JS 维护状态密集界面成本显著上升。
+- 选项与权衡: A(Vue3+Vite：组件化+响应式状态天然匹配列表/搜索/详情/轮询；SFC 按视图拆分；官方 Tauri 模板一等支持；代价=桌面 workspace 引入 pnpm 构建链、CI 补 pnpm install，选定); B(Vanilla JS 渐进增强：零构建链但状态/过滤/轮询/表单校验全手写、S1b 成本高、长期维护劣化，弃用); C(Svelte+Vite：编译期框架运行时更小但团队熟悉度低、生态/模板成熟度逊于 Vue，弃用)。
+- 结论: Vue 3 + Vite + TypeScript 替换 desktop/ui/ 静态页。安全面不变（机密不进前端存储，SP-F-707 口径延续）；运行期零 Node（Vite 仅构建期，产物静态打包进 NSIS，CSP default-src 'self' 不变）。
+- 理由: 全功能 GUI 的组件化/状态/表单效率是主因；构建链影响可控（CI 已有 pnpm 基础）；Vue 为 Tauri 官方模板一等公民，长期维护与招人成本最低。
+- 影响: desktop/ui/ 全量重写为 Vite 项目；tauri.conf.json 接 frontendDist/devUrl/beforeDev/beforeBuild；CI desktop/windows(tag) job 补 pnpm install/test；design_docs/16；SRS/追溯矩阵同步。
+- 记录时间 / 会话: 2026-10-30 / SuperPasswdKey S1a 会话（design_docs/16 撰写）

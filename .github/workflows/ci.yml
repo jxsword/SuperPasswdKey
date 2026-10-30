@@ -93,6 +93,11 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') && steps.tauri_cli_win.outputs.cache-hit != 'true'
         run: cargo install tauri-cli --version ${{ env.TAURI_CLI_VERSION }} --locked
 
+      - name: Install desktop GUI deps (DR-014：tauri build 的 beforeBuildCommand 需 node_modules)
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: desktop/ui
+        run: pnpm install --frozen-lockfile
+
       - name: Build desktop bundle (NSIS, tag only; crt-static 自包含)
         if: startsWith(github.ref, 'refs/tags/v')
         working-directory: desktop/src-tauri
@@ -203,6 +208,7 @@ jobs:
   desktop:
     # 桌面壳门禁（DR-013 批次 1，任务书_step7 任务 4）：独立 workspace
     # （tauri/wry/tao 仅 MSVC 可构建，不并入根 workspace 防 linux CI 失败）
+    # DR-014：GUI 前端 Vue3+Vite，cargo tauri build 前需 pnpm 构建产物（beforeBuildCommand）
     runs-on: windows-latest
     defaults:
       run:
@@ -211,6 +217,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: desktop/ui/pnpm-lock.yaml
+
+      - name: Install GUI deps
+        working-directory: desktop/ui
+        run: pnpm install --frozen-lockfile
+
+      - name: GUI tests (vitest)
+        working-directory: desktop/ui
+        run: pnpm test
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable

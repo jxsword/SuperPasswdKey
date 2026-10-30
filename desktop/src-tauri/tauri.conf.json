@@ -4,7 +4,10 @@
   "version": "0.3.0",
   "identifier": "com.superpasswdkey.spdesktop",
   "build": {
-    "frontendDist": "../ui"
+    "beforeDevCommand": "pnpm --dir ui dev",
+    "beforeBuildCommand": "pnpm --dir ui build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../ui/dist"
   },
   "app": {
     "withGlobalTauri": true,
@@ -12,9 +15,9 @@
       {
         "label": "main",
         "title": "SuperPasswdKey",
-        "width": 440,
-        "height": 680,
-        "resizable": false,
+        "width": 1024,
+        "height": 720,
+        "resizable": true,
         "visible": false
       }
     ],
