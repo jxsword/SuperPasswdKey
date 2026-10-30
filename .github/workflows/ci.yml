@@ -360,14 +360,13 @@ jobs:
       - name: Resolve runner image version（SDK/AVD 缓存 key 分量）
         run: echo "RUNNER_IMAGE=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
 
-      - name: Cache Android SDK emulator components
+      - name: Cache Android SDK system images
         uses: actions/cache@v4
         with:
-          path: |
-            /usr/local/lib/android/sdk/system-images
-            /usr/local/lib/android/sdk/emulator
-            /usr/local/lib/android/sdk/platform-tools
-          key: android-sdk-api34-google_apis-x86_64-${{ env.RUNNER_IMAGE }}
+          # 只缓存 system-images：emulator/platform-tools 是 runner 预装目录（root 属主），
+          # 恢复时原地覆盖报 Cannot utime → 整包作废（2026-10-30 run 实测）
+          path: /usr/local/lib/android/sdk/system-images
+          key: android-sdk-images-api34-google_apis-x86_64-v2-${{ env.RUNNER_IMAGE }}
 
       - name: Cache AVD snapshot
         uses: actions/cache@v4
@@ -376,7 +375,8 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-api34-google_apis-x86_64-${{ env.RUNNER_IMAGE }}
+            ~/.android/debug.keystore
+          key: avd-api34-google_apis-x86_64-v2-${{ env.RUNNER_IMAGE }}
 
       - name: Clean stale AVD locks（异常退出残留锁会卡死下次启动）
         run: find ~/.android/avd -name "*.lock" -delete 2>/dev/null || true
@@ -409,6 +409,8 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
+            # 快照里可能带有旧调试签名的同包名应用，先卸载再装，规避签名不匹配（2026-10-30 run 实测）
+            adb uninstall com.superpasswdkey.spike >/dev/null 2>&1 || true
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             adb push build/test_vault.kdbx /data/local/tmp/
             adb shell run-as com.superpasswdkey.spike mkdir -p files
