@@ -28,7 +28,7 @@
 1. ✅ push 本地 develop（含 .gitignore 更新提交 2313705）——实测远端已同步（fetch 后 0 0，push 回显 Everything up-to-date）
 2. ✅ .gitignore 微调：根级补 `dist/`；删除冗余行 `/target`（被 `**/target/` 覆盖）与错位行 `desktop/target/`（实际路径 desktop/src-tauri/target 由 `**/target/` 覆盖）
 3. ✅ 未跟踪的 AGENTS.md 按 §AGENTS 规则草案扩充后提交入库（9 条：备份/分支/破坏性操作/签名/门禁/交接/发布/Mimosa/凭据卫生）
-4. CI 缓存优化按 §CI 缓存配方逐项实施
+4. ✅ CI 缓存优化按 §CI 缓存配方逐项实施——钉版 tauri-cli 2.12.4 / cargo-ndk 4.1.2 / KeePassXC 2.7.12（官方便携 zip 替代 choco）；tauri-cli、cargo-ndk 二进制级缓存；windows setup-node 补 pnpm 缓存；android-e2e 补 gradle 缓存 + 模拟器 SDK 组件缓存 + AVD 快照两步流（官方 README 配方）；deny 按配方不加缓存（路径过滤改造未做，见交付说明），rustup 可选行未做
 5. develop→main PR 合并（把本批与此前 4 个未同步提交一并带上）
 
 **验收**：CI 七 job 全绿；`git rev-list --left-right --count origin/main...origin/develop` 趋近 0（仅剩 merge 节点差异）；AGENTS.md 入库。
