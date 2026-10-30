@@ -40,3 +40,5 @@ minisign.key
 /build/
 desktop/target/
 dist-repro/
+
+/.cache/
