@@ -49,7 +49,8 @@ New-Item -ItemType Directory -Force -Path $Work | Out-Null
 Push-Location $Work
 try {
     if (Test-ReleaseExists $Tag) {
-        Invoke-Gh release download $Tag --repo $Repo --pattern "sp-windows-release" --clobber
+        # v0.3.0 起 Release 直接挂逐个资产（sp-*.zip），不再依赖 CI artifact 名
+        Invoke-Gh release download $Tag --repo $Repo --pattern "sp-*.zip" --clobber
     } elseif ($ArtifactRunId) {
         Invoke-Gh run download $ArtifactRunId --repo $Repo -n sp-windows-release -D $Work
     } else {
