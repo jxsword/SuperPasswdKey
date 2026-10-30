@@ -1,6 +1,6 @@
 # 需求追踪矩阵（Requirements Traceability Matrix）
 
-- SRS 版本：V1.4（2026-10-30；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
+- SRS 版本：V1.5（2026-10-30；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
 - 状态图例：🟢 已覆盖｜🟡 部分（后置项注明）｜⚪ 计划中
 
 | 需求编号 | 需求标题 | 来源（基线/DR） | 设计文档 | 测试用例 | 状态 |
@@ -52,12 +52,13 @@
 | SP-F-803 | 系统 Autofill 对接（M1） | DR-009 | 14 | 原生/包名路径真机+模拟器 e2e 全通 ✅；认证回路全链路回归 PASS（2026-10-28，含 presentation 修复）；web 路径待非 MIUI 真机（R14-1/3） | 🟡 |
 | SP-F-804 | Android 机密边界（不落 SharedPreferences/日志） | 红线#4#5 | 13, 14 | 代码审查（日志仅记值长度/类别，无机密落盘路径；含首建流程复查 2026-10-28；含保存路径 intent extra 边界复查 2026-10-29）；logcat 实测零凭据值泄漏 | 🟢 |
 | SP-F-805 | Android Autofill 保存场景（M2，DR-012 A1） | DR-012 | 14 §7 | 模拟器演示链路全通（新凭据→系统保存建议→确认入库→进程重启重开库→数据集可读；拒绝路径零写入，2026-10-29）；e2e 断言（锁库后 saveSession 拒绝 + 保存闭环重开读回）进 TestActivity 全绿；sp-kffi 主机侧测试 save_session 语义覆盖（73 测试基线） | 🟢 |
-| SP-F-901 | 桌面托盘壳（Tauri 常驻/关窗隐藏/菜单） | DR-013 | 15 | `cargo tauri build` 本地实测 + CI desktop job（fmt/clippy/test/build）；菜单行为手工验收 | 🟡 手工项待用户 |
+| SP-F-901 | 桌面托盘壳（Tauri 常驻/关窗隐藏/菜单） | DR-013, DR-014 | 15, 16 | `cargo tauri build` 本地实测 + CI desktop job（fmt/clippy/test/build）；菜单行为手工验收 | 🟡 手工项待用户 |
 | SP-F-902 | 桌面解锁会话（每进程首次主密码/因子留驻 actor） | DR-013, 红线#5 | 15 | unlock/错密码/锁库单测（复用 sp-kffi actor 语义，批次 1 已建）；真实 kdbx 解锁（步骤 7 本地实测） | 🟢 |
 | SP-F-903 | 桌面双超时（idle/absolute 独立可配，到期锁库） | DR-013 | 15 | idle=0 注入单测（首访问即锁）+ 重解锁重置计时单测（批次 1）+ NM watcher sp.event 通知（步骤 7） | 🟢 |
 | SP-F-904 | 桌面设置持久化（settings.json 非机密/损坏回落） | DR-013 | 15 | roundtrip/损坏回落/BOM 单测（2026-10-29）；落盘内容人工核对 | 🟢 |
 | SP-F-905 | 桌面开机自启（HKCU Run 写删/偏好对账） | DR-013 | 15 | 独立值名注册表 roundtrip 单测（2026-10-29）；`reg query` 验证为用户手工验收项 | 🟡 手工项待用户 |
 | SP-F-906 | NM host 单进程嵌入（协议库化复用/locked 弹窗/EOF 退出） | DR-013 | 15 | 模拟 NM 握手测试全链路（serve+适配器：ping→解锁→get-logins→get-secret→lock→locked，2026-10-29）；register.ps1 -Target desktop 双轨；旧 sp-nmhost 回归（30 测试不变）；手工 Chrome 验证待用户 | 🟡 手工项待用户 |
 | SP-F-907 | 桌面浏览器填充链路（URL 匹配/单条取密，纪律单源） | DR-013 | 15 | 匹配命中+子串反例+响应无密码+锁定拒绝断言（模拟握手测试内，2026-10-29） | 🟢 |
+| SP-F-908 | 桌面 GUI 条目浏览（列表/搜索/详情只读/TOTP/复制，S1a MVP） | DR-014 | 16 | 组件测试（vitest：列表渲染/搜索过滤/详情/TOTP 轮询/复制调用）+ Rust session 测试扩展（entry_list/entry_get/entry_totp/clip_copy 惰性锁库语义）；CI desktop job 全绿；真实库手工验收待用户 | 🟢（自动化）/🟡 手工项待用户 |
 
 \* 测试用例编号在实现阶段（H3/H4/H5/H6/H7）按此前缀回填；round-trip 对拍测试覆盖 SP-F-101/102/103/104/601 的互操作维度。

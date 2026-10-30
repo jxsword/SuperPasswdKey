@@ -1,6 +1,6 @@
 # SuperPasswdKey 软件需求规格说明书（SRS）
 
-- 版本：**V1.4（2026-10-30，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8）**
+- 版本：**V1.5（2026-10-30，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP）**
 - 开发模型：瀑布（三轮审核：完整性→一致性→可执行性，记录见 `docs/reviews/srs_review.md`）
 - 需求来源：《docs/research/自研需求基线_SuperPasswdKey.md》（B1–B22）、决策记录 DR-001~005、2 天冲刺计划两轮复审修正
 - 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-F-8xx` Android（V1.2 新增）｜`SP-F-9xx` 桌面 Windows（V1.3 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
@@ -220,8 +220,8 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 
 ### 3.9 桌面 Windows（SP-F-9xx，V1.3 新增，来源 DR-013 批次 1）
 
-**SP-F-901 桌面托盘壳（P0，DR-013，confirmed）**
-- 描述：Tauri v2 托盘常驻（独立 workspace，仅 MSVC）；关窗=隐藏（进程与会话保留）；托盘菜单=显示解锁窗/立即锁定/设置/退出；静态前端零 Node 依赖。
+**SP-F-901 桌面托盘壳（P0，DR-013，confirmed；DR-014 修订前端形态）**
+- 描述：Tauri v2 托盘常驻（独立 workspace，仅 MSVC）；关窗=隐藏（进程与会话保留）；托盘菜单=显示解锁窗/立即锁定/设置/退出；前端 Vue 3 + Vite 构建（DR-014，v0.3.0 静态零 Node 页为过渡形态；运行期零 Node，产物静态打包，机密不进前端存储）。
 - 验收：`cargo tauri build` 产物托盘常驻、菜单四项行为正确；linux CI 不受影响（desktop 独立 workspace + 独立 job）。
 
 **SP-F-902 桌面解锁会话（P0，DR-013，红线#5，confirmed）**
@@ -247,6 +247,10 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 **SP-F-907 桌面浏览器填充链路（P0，DR-013，confirmed）**
 - 描述：sp.get-logins 按 URL 匹配条目摘要（复用 match_url 语义，SP-F-706 单源）+ sp.get-secret 单条显式取回（password/totp 白名单）；动作纪律与 SP-F-702 单源（无全库导出、锁定拒绝、机密不进错误链、成功请求刷新空闲计时）；NM 侧解锁目标=桌面单库（%APPDATA%/SuperPasswdKey/vault.kdbx），keyfile 仅经 nm-host-config.json（不经管道）。
 - 验收：匹配命中与反例（子串误配不命中）；get-logins 响应不含密码字段；锁定态 get-logins/get-secret 拒绝。
+
+**SP-F-908 桌面 GUI 条目浏览（P1，DR-014，S1a MVP，confirmed）**
+- 描述：解锁后主窗提供条目列表（标题/用户名/URL/TOTP 标记，经 sp-kffi list_entry_summaries）+ 即时搜索（客户端过滤）+ 详情只读视图（find_entry 含密码瞬态展示、TOTP 动态码 30s 轮询、复制按钮经 Rust clip_copy=arboard+30s 超时清空，对齐 CLI clip 语义）；所有机密操作经 Session 惰性超时检查（过期即锁库，SP-F-903 口径）；机密不进前端存储（SP-F-707 口径）；MVP 不含写路径（条目 CRUD/附件/TOTP 编辑在 S1b）。
+- 验收：真实库解锁→列表→搜索→详情→TOTP 复制全链路；锁定态请求返回 locked 语义；组件测试（vitest）+ session 测试回归全绿；CI 七 job 全绿。
 
 ## 4. 非功能需求（SP-N，全部绑定测量方法）
 
