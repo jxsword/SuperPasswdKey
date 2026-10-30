@@ -8,7 +8,7 @@
 
 | 会话 | 阶段 | 内容 | 交付物（给下阶段） | 状态 |
 |---|---|---|---|---|
-| #1 | **S0 卫生与同步** | push develop、.gitignore 微调、AGENTS.md 扩充、CI 缓存 6 项、develop→main 合并 | 同步的 main/develop + 扩充的 AGENTS.md + 缓存 CI | ☐ |
+| #1 | **S0 卫生与同步** | push develop、.gitignore 微调、AGENTS.md 扩充、CI 缓存 6 项、develop→main 合并 | 同步的 main/develop + 扩充的 AGENTS.md + 缓存 CI | ◐ ①②③④ 完成，⑤ PR 收尾中（交付说明：[S0-DELIVERY-2026-10-30.md](S0-DELIVERY-2026-10-30.md)） |
 | #2 | **S1a GUI 设计+MVP** | design_docs/16（Vue3+Vite/DR-014/信息架构/安全边界）+ 脚手架 + 解锁集成/列表/搜索/详情 | design_docs/16 + GUI MVP | ☐ |
 | #3 | **S3 Mimosa 基线审计** | 全仓审计（CLI+扩展+桌面+GUI MVP）+ 修复 | 审计报告 + 修复 | ☐ |
 | #4 | **S1b GUI 写路径** | 条目 CRUD/附件/TOTP | 功能完整 GUI | ☐ |
@@ -29,7 +29,7 @@
 2. ✅ .gitignore 微调：根级补 `dist/`；删除冗余行 `/target`（被 `**/target/` 覆盖）与错位行 `desktop/target/`（实际路径 desktop/src-tauri/target 由 `**/target/` 覆盖）
 3. ✅ 未跟踪的 AGENTS.md 按 §AGENTS 规则草案扩充后提交入库（9 条：备份/分支/破坏性操作/签名/门禁/交接/发布/Mimosa/凭据卫生）
 4. ✅ CI 缓存优化按 §CI 缓存配方逐项实施——钉版 tauri-cli 2.12.4 / cargo-ndk 4.1.2 / KeePassXC 2.7.12（官方便携 zip 替代 choco）；tauri-cli、cargo-ndk 二进制级缓存；windows setup-node 补 pnpm 缓存；android-e2e 补 gradle 缓存 + 模拟器 SDK 组件缓存 + AVD 快照两步流（官方 README 配方）；deny 按配方不加缓存（路径过滤改造未做，见交付说明），rustup 可选行未做
-5. develop→main PR 合并（把本批与此前 4 个未同步提交一并带上）
+5. ◐ develop→main PR 合并（把本批与此前 4 个未同步提交一并带上）——本批 PR 合并 develop 后随即创建 develop→main PR 收尾（main 侧 11 个差异提交实测全为 merge 节点，无内容差异）
 
 **验收**：CI 七 job 全绿；`git rev-list --left-right --count origin/main...origin/develop` 趋近 0（仅剩 merge 节点差异）；AGENTS.md 入库。
 
