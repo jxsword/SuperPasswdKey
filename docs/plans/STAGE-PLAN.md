@@ -25,8 +25,8 @@
 **目标**：仓库卫生、Agent 约束入库、CI 环境部署缓存化、main/develop 同步。
 
 **任务**：
-1. push 本地 develop（含 .gitignore 更新提交 2313705）
-2. .gitignore 微调：根级补 `dist/`；删除冗余行 `/target`（被 `**/target/` 覆盖）与错位行 `desktop/target/`（实际路径 desktop/src-tauri/target 由 `**/target/` 覆盖）
+1. ✅ push 本地 develop（含 .gitignore 更新提交 2313705）——实测远端已同步（fetch 后 0 0，push 回显 Everything up-to-date）
+2. ✅ .gitignore 微调：根级补 `dist/`；删除冗余行 `/target`（被 `**/target/` 覆盖）与错位行 `desktop/target/`（实际路径 desktop/src-tauri/target 由 `**/target/` 覆盖）
 3. 未跟踪的 AGENTS.md 按 §AGENTS 规则草案扩充后提交入库
 4. CI 缓存优化按 §CI 缓存配方逐项实施
 5. develop→main PR 合并（把本批与此前 4 个未同步提交一并带上）
