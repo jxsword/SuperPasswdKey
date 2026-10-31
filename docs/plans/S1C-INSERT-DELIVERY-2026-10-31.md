@@ -41,3 +41,10 @@ fmt/clippy/test 全绿（34 passed）；PR CI 七 job 全绿后合并 develop。
 从本 PR 描述复制全文存为 `crates/sp-cli/tests/item_edit_e2e.rs` 即可
 （`cargo test -p sp-cli` 验证）。等价纯逻辑覆盖（validate/apply patch 单测）
 已随源码入库。
+
+## 5. e2e 文件全文（维护者手动落盘：另存为 crates/sp-cli/tests/item_edit_e2e.rs）
+
+```rust
+// 占位：全文见 PR 描述（Mimosa 拦截面口径——含 Command::new 的 Rust 代码块
+// 无法经 Write 工具落任何路径；此处不内联，避免本文档自身被拦）。
+```
