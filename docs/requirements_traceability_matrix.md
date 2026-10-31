@@ -1,13 +1,13 @@
 # 需求追踪矩阵（Requirements Traceability Matrix）
 
-- SRS 版本：V1.5（2026-10-30；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
+- SRS 版本：V1.6（2026-10-31；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
 - 状态图例：🟢 已覆盖｜🟡 部分（后置项注明）｜⚪ 计划中
 
 | 需求编号 | 需求标题 | 来源（基线/DR） | 设计文档 | 测试用例 | 状态 |
 |---|---|---|---|---|---|
 | SP-F-101 | 库初始化 | B1/B2/B3, DR-003 | 01, 02 | sp-kdbx 单测/roundtrip 对拍 + `sp init` CLI 实测（2026-10-29 本机建库全流程，含 KDF 校准/keyfile 生成/配置回写） | 🟢 |
 | SP-F-102 | 条目 CRUD（全字段加密） | B1 | 01, 02, 03 | sp-kdbx 单测（add/find/list/delete）+ KeePassXC roundtrip 对拍 + CLI item 族实测（2026-10-29/30） | 🟢 |
-| SP-F-103 | 修改历史 | B1 | 02 | sp-kdbx edit_entry 单测（update_history 压栈）；CLI 暂无 edit 入口（FFI/Android 面已用：SP-F-805 更新路径 2026-10-29） | 🟢 CLI 入口缺 |
+| SP-F-103 | 修改历史 | B1 | 02 | sp-kdbx edit_entry 单测（update_history 压栈）；CLI 暂无 edit 入口（FFI/Android 面已用：SP-F-805 更新路径 2026-10-29）；**GUI edit 入口落地（SP-F-909，S1b-1：edit_entry 单源复用，history 语义随 kdbx 单测）** | 🟢 CLI 入口缺 |
 | SP-F-104 | 附件（add/list/get 命令族） | B21 | 02, 手册 | e2e：1MB add→list→get 双通道往返无损 + 同名覆盖 + 错误码（3/3/2）（2026-10-29，`sp attachment`）；CLI 冒烟实测通过；KeePassXC 对拍（roundtrip.rs 既有） | 🟢 |
 | SP-F-105 | 解锁（双因子，无跨进程会话） | B3, 冲刺复审#1 | 01, 03 | 错密码/keyfile 缺失 → 退出码 2（session 单测）；zeroize 审查；每命令独立解锁实测 | 🟢 |
 | SP-F-106 | 单库与默认库配置 | 冲刺复审#4 | 03 | config.toml default_db/keyfile 解析单测 + init 回写实测（2026-10-29） | 🟢 |
@@ -60,5 +60,6 @@
 | SP-F-906 | NM host 单进程嵌入（协议库化复用/locked 弹窗/EOF 退出） | DR-013 | 15 | 模拟 NM 握手测试全链路（serve+适配器：ping→解锁→get-logins→get-secret→lock→locked，2026-10-29）；register.ps1 -Target desktop 双轨；旧 sp-nmhost 回归（30 测试不变）；手工 Chrome 验证待用户 | 🟡 手工项待用户 |
 | SP-F-907 | 桌面浏览器填充链路（URL 匹配/单条取密，纪律单源） | DR-013 | 15 | 匹配命中+子串反例+响应无密码+锁定拒绝断言（模拟握手测试内，2026-10-29） | 🟢 |
 | SP-F-908 | 桌面 GUI 条目浏览（列表/搜索/详情只读/TOTP/复制，S1a MVP） | DR-014 | 16 | 组件测试（vitest：列表渲染/搜索过滤/详情/TOTP 轮询/复制调用）+ Rust session 测试扩展（entry_list/entry_get/entry_totp/clip_copy 惰性锁库语义）；CI desktop job 全绿；真实库手工验收待用户 | 🟢（自动化）/🟡 手工项待用户 |
+| SP-F-909 | 桌面 GUI 条目写路径（创建/编辑/删除 + 显示/放大显示，S1b-1） | DR-014, SP-F-103 | 16 | kffi find_entry_full/delete_entry 单测（custom_fields 保真 roundtrip + 删除 NotFound）；Rust session 测试（创建/编辑改名/删除/锁定拒绝/错 otp 拒绝）；vitest（表单校验对齐 CLI/保真回传/删除确认/放大显示模态/显示切换）；真实库手工验收待用户 | 🟢（自动化）/🟡 手工项待用户 |
 
 \* 测试用例编号在实现阶段（H3/H4/H5/H6/H7）按此前缀回填；round-trip 对拍测试覆盖 SP-F-101/102/103/104/601 的互操作维度。
