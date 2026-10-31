@@ -4,7 +4,20 @@
 // 编辑时 custom_fields 原样回传保真（S1b-1 不渲染编辑控件，S1b-2 提供 UI）。
 import { computed, ref } from "vue";
 import * as api from "../api";
-import type { EntryDetail, EntryDraft } from "../api";
+import type { CustomField, EntryDetail, EntryDraft } from "../api";
+
+// KDBX 标准字段名不可作为自定义字段（与 sp-core 校验同源，前端预校验仅 UX）
+const RESERVED_FIELDS = [
+  "Password",
+  "BinaryData",
+  "otp",
+  "Title",
+  "URL",
+  "UserName",
+  "Notes",
+  "Additional",
+  "BinaryDesc",
+];
 
 const props = defineProps<{
   mode: "create" | "edit";
@@ -24,11 +37,23 @@ const url = ref(props.initial?.url ?? "");
 const notes = ref(props.initial?.notes ?? "");
 const otp = ref(props.initial?.otp ?? "");
 const tagsText = ref((props.initial?.tags ?? []).join(", "));
+// 自定义字段编辑行（S1b-2b；v0.1 存储不支持 protected 标记——DR-005，恒为 false）
+const fields = ref<CustomField[]>(
+  (props.initial?.custom_fields ?? []).map((f) => ({ ...f })),
+);
 const showPassword = ref(props.mode === "edit");
 const busy = ref(false);
 const error = ref("");
 
 const heading = computed(() => (props.mode === "create" ? "新的项目" : `编辑：${props.initial?.title}`));
+
+function addField() {
+  fields.value.push({ name: "", value: "", protected: false });
+}
+
+function removeField(i: number) {
+  fields.value.splice(i, 1);
+}
 
 function buildDraft(): EntryDraft {
   return {
@@ -38,7 +63,13 @@ function buildDraft(): EntryDraft {
     url: url.value.trim() || null,
     notes: notes.value || null,
     otp: otp.value.trim() || null,
-    custom_fields: props.initial?.custom_fields ?? [],
+    custom_fields: fields.value
+      .map((f) => ({
+        name: f.name.trim(),
+        value: f.value,
+        protected: f.protected,
+      }))
+      .filter((f) => f.name.length > 0 || f.value.length > 0),
     tags: tagsText.value
       .split(/[，,]/)
       .map((t) => t.trim())
@@ -50,6 +81,12 @@ function validate(draft: EntryDraft): string {
   if (!draft.title) return "标题必填";
   if (draft.otp && !draft.otp.startsWith("otpauth://")) {
     return "TOTP 链接必须以 otpauth:// 开头";
+  }
+  for (const f of draft.custom_fields) {
+    if (!f.name) return "自定义字段名称必填（或删除该空行）";
+    if (RESERVED_FIELDS.includes(f.name)) {
+      return `自定义字段名 "${f.name}" 为保留名`;
+    }
   }
   return "";
 }
@@ -110,6 +147,23 @@ async function submit() {
       <input id="f-otp" v-model="otp" autocomplete="off" />
       <label for="f-tags">标签（逗号分隔）</label>
       <input id="f-tags" v-model="tagsText" autocomplete="off" placeholder="例如：work, infra" />
+      <label class="cf-label">自定义字段</label>
+      <div class="cf-row" v-for="(f, i) in fields" :key="i">
+        <input
+          class="cf-name"
+          v-model="f.name"
+          placeholder="名称"
+          autocomplete="off"
+        />
+        <input
+          class="cf-value"
+          v-model="f.value"
+          placeholder="值"
+          autocomplete="off"
+        />
+        <button class="mini" type="button" @click="removeField(i)">✕</button>
+      </div>
+      <button class="mini cf-add" type="button" @click="addField">＋ 添加字段</button>
       <div class="error" v-if="error">{{ error }}</div>
       <div class="actions">
         <button class="primary" :disabled="busy" @click="submit">
@@ -245,5 +299,29 @@ button:disabled {
   font-size: 11px;
   color: var(--muted);
   margin: 8px 0 0;
+}
+
+.cf-label {
+  margin-top: 8px;
+}
+
+.cf-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.cf-name {
+  width: 130px;
+  flex-shrink: 0;
+}
+
+.cf-value {
+  flex: 1;
+}
+
+.cf-add {
+  align-self: flex-start;
+  padding: 4px 10px;
 }
 </style>

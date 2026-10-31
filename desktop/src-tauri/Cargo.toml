@@ -16,6 +16,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
+# 附件下载保存对话框（S1b-2b；Rust 侧调用，不经 JS 绑定/能力面）
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 winreg = "0.55"

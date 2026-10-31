@@ -303,6 +303,11 @@ enum VaultCmd {
         title: String,
         resp: Res<()>,
     },
+    /// 列条目附件名（仅 Rust 面：语义 = sp_kdbx::list_attachments，GUI 附件管理）
+    ListAttachments {
+        title: String,
+        resp: Res<Vec<String>>,
+    },
     AddEntry {
         draft: FfiEntryDraft,
         resp: Res<()>,
@@ -380,6 +385,10 @@ fn vault_worker(
             VaultCmd::DeleteEntry { title, resp } => respond(
                 resp,
                 sp_kdbx::delete_entry(&mut db, &title).map_err(FfiError::from),
+            ),
+            VaultCmd::ListAttachments { title, resp } => respond(
+                resp,
+                sp_kdbx::list_attachments(&db, &title).map_err(FfiError::from),
             ),
             VaultCmd::ListSummaries { resp } => respond(
                 resp,
@@ -599,6 +608,15 @@ impl Vault {
         let (tx, rx) = channel();
         self.tx
             .send(VaultCmd::DeleteEntry { title, resp: tx })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 列条目附件名（语义 = sp_kdbx::list_attachments；GUI 附件管理）
+    pub fn list_attachments(&self, title: String) -> Result<Vec<String>, FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::ListAttachments { title, resp: tx })
             .map_err(|_| worker_unavailable())?;
         rx.recv().map_err(|_| worker_unavailable())?
     }

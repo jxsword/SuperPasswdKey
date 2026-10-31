@@ -254,6 +254,43 @@ impl Session {
             .map(|p| p.to_string_lossy().to_string())
             .ok_or_else(|| "会话已锁定，请重新解锁".to_string())
     }
+
+    /// 列条目附件名（GUI attachment_list；S1b-2b）
+    pub fn attachment_list(&mut self, title: &str) -> Result<Vec<String>, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        let names = v
+            .list_attachments(title.to_string())
+            .map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(names)
+    }
+
+    /// 添加附件（GUI attachment_add；同名覆盖语义 = sp_kdbx::add_attachment）。
+    pub fn attachment_add(&mut self, title: &str, name: &str, data: Vec<u8>) -> Result<(), String> {
+        let path = self.session_db_path()?;
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        v.add_attachment(title.to_string(), name.to_string(), data)
+            .map_err(|e| describe(&e))?;
+        v.save_session(path).map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(())
+    }
+
+    /// 读附件字节（GUI 下载用；落盘由 command 层完成并做限权收敛）
+    pub fn attachment_get(&mut self, title: &str, name: &str) -> Result<Vec<u8>, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        let data = v
+            .get_attachment(title.to_string(), name.to_string())
+            .map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(data)
+    }
 }
 
 // ---------- GUI DTO（serde 序列化面；字段与前端 api.ts 镜像一一对应） ----------
@@ -764,6 +801,40 @@ mod tests {
         match s.entry_create(d) {
             Err(err) => assert!(err.contains("参数错误"), "unexpected: {err}"),
             Ok(()) => panic!("invalid otp must be rejected"),
+        }
+    }
+
+    #[test]
+    fn attachment_add_list_get_roundtrip() {
+        // S1b-2b：GUI 附件管理（list 为 kffi Rust-only 面；add 同名覆盖；get 字节往返）
+        let f = Fixture::new("gui-attach");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        s.entry_create(draft_dto("WithFiles", "p")).expect("create");
+
+        s.attachment_add("WithFiles", "a.txt", b"alpha".to_vec())
+            .expect("add 1");
+        s.attachment_add("WithFiles", "b.bin", vec![1, 2, 3])
+            .expect("add 2");
+        let mut names = s.attachment_list("WithFiles").expect("list");
+        names.sort();
+        assert_eq!(names, vec!["a.txt".to_string(), "b.bin".to_string()]);
+
+        let got = s.attachment_get("WithFiles", "a.txt").expect("get");
+        assert_eq!(got, b"alpha".to_vec());
+
+        // 同名覆盖（对齐 CLI 语义）
+        s.attachment_add("WithFiles", "a.txt", b"alpha-2".to_vec())
+            .expect("overwrite");
+        let got = s.attachment_get("WithFiles", "a.txt").expect("get 2");
+        assert_eq!(got, b"alpha-2".to_vec());
+        assert_eq!(s.attachment_list("WithFiles").expect("list 2").len(), 2);
+
+        // 锁定态拒绝
+        s.lock_now();
+        match s.attachment_list("WithFiles") {
+            Err(err) => assert!(err.contains("锁定"), "unexpected: {err}"),
+            Ok(_) => panic!("locked session must deny attachment list"),
         }
     }
 }

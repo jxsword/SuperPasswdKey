@@ -7,6 +7,7 @@
 pub mod calibration;
 pub mod entry;
 pub mod error;
+pub mod fsperms;
 pub mod keymaterial;
 pub mod keypolicy;
 pub mod match_url;
