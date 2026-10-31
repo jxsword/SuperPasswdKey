@@ -195,6 +195,7 @@ class TestActivity : Activity() {
                     notes = null,
                     otp = null,
                     customFields = emptyList(),
+                    tags = emptyList(),
                 ),
             )
             v.saveSession(saveProbe.absolutePath)

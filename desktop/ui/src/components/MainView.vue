@@ -22,7 +22,7 @@ const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
   if (!q) return entries.value;
   return entries.value.filter((e) => {
-    const hay = [e.title, e.username, e.url]
+    const hay = [e.title, e.username, e.url, ...e.tags]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
@@ -45,6 +45,12 @@ async function loadEntries() {
 
 function onSelect(title: string) {
   selectedTitle.value = title;
+  props.touch();
+}
+
+/** 列表标签徽标点击 → 搜索框设为该标签（客户端过滤；SP-F-108） */
+function onTagFilter(tag: string) {
+  query.value = tag;
   props.touch();
 }
 
@@ -87,6 +93,7 @@ onMounted(loadEntries);
         :selected="selectedTitle"
         :loading="loading"
         @select="onSelect"
+        @tag="onTagFilter"
       />
     </aside>
     <section class="right">

@@ -23,6 +23,7 @@ const password = ref(props.initial?.password ?? "");
 const url = ref(props.initial?.url ?? "");
 const notes = ref(props.initial?.notes ?? "");
 const otp = ref(props.initial?.otp ?? "");
+const tagsText = ref((props.initial?.tags ?? []).join(", "));
 const showPassword = ref(props.mode === "edit");
 const busy = ref(false);
 const error = ref("");
@@ -38,6 +39,10 @@ function buildDraft(): EntryDraft {
     notes: notes.value || null,
     otp: otp.value.trim() || null,
     custom_fields: props.initial?.custom_fields ?? [],
+    tags: tagsText.value
+      .split(/[，,]/)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0),
   };
 }
 
@@ -103,6 +108,8 @@ async function submit() {
       <textarea id="f-notes" v-model="notes" rows="3"></textarea>
       <label for="f-otp">TOTP（otpauth:// 链接）</label>
       <input id="f-otp" v-model="otp" autocomplete="off" />
+      <label for="f-tags">标签（逗号分隔）</label>
+      <input id="f-tags" v-model="tagsText" autocomplete="off" placeholder="例如：work, infra" />
       <div class="error" v-if="error">{{ error }}</div>
       <div class="actions">
         <button class="primary" :disabled="busy" @click="submit">

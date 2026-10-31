@@ -67,6 +67,8 @@ pub struct FfiEntry {
     pub url: Option<String>,
     pub notes: Option<String>,
     pub otp: Option<String>,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
 }
 
 /// 条目摘要（不含密码/TOTP，对齐 sp_kdbx::EntrySummary / SP-F-706 语义）
@@ -76,6 +78,8 @@ pub struct FfiEntrySummary {
     pub username: Option<String>,
     pub url: Option<String>,
     pub has_otp: bool,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
 }
 
 /// 自定义字段（语义 = sp_core::CustomField；protected 的存储限制见 sp-kdbx 模块文档）
@@ -96,6 +100,8 @@ pub struct FfiEntryDraft {
     pub notes: Option<String>,
     pub otp: Option<String>,
     pub custom_fields: Vec<FfiCustomField>,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
 }
 
 /// 条目全文完整读回（**仅 Rust 面，不经 UniFFI 导出**）。
@@ -111,6 +117,8 @@ pub struct FfiEntryFull {
     pub notes: Option<String>,
     pub otp: Option<String>,
     pub custom_fields: Vec<FfiCustomField>,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
 }
 
 /// 统一错误面（映射 sp_core::SpError 子集；凭据语义不细化以防侧信道，SP-F-107）
@@ -156,6 +164,7 @@ fn ffi_entry(m: EntryModel) -> FfiEntry {
         url: m.url,
         notes: m.notes,
         otp: m.otp,
+        tags: m.tags,
     }
 }
 
@@ -177,6 +186,7 @@ fn ffi_entry_full(m: EntryModel) -> FfiEntryFull {
                 protected: f.protected,
             })
             .collect(),
+        tags: m.tags,
     }
 }
 
@@ -197,6 +207,7 @@ fn draft_model(d: FfiEntryDraft) -> EntryModel {
             })
             .collect(),
         otp: d.otp,
+        tags: d.tags,
     }
 }
 
@@ -379,6 +390,7 @@ fn vault_worker(
                         username: s.username,
                         url: s.url,
                         has_otp: s.has_otp,
+                        tags: s.tags,
                     })
                     .collect()),
             ),

@@ -20,6 +20,7 @@ const initial = {
   notes: null,
   otp: null,
   custom_fields: [{ name: "api_key", value: "k-9", protected: false }],
+  tags: ["dev"],
 };
 
 describe("EntryFormModal", () => {
@@ -50,10 +51,16 @@ describe("EntryFormModal", () => {
     const wrapper = mount(EntryFormModal, { props: { mode: "create" } });
     await wrapper.find("#f-title").setValue(" New Entry ");
     await wrapper.find("#f-password").setValue("p1");
+    await wrapper.find("#f-tags").setValue(" work, infra ， 生产 ");
     await wrapper.find("button.primary").trigger("click");
     await flushPromises();
     expect(api.entryCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "New Entry", password: "p1", custom_fields: [] }),
+      expect.objectContaining({
+        title: "New Entry",
+        password: "p1",
+        custom_fields: [],
+        tags: ["work", "infra", "生产"], // 中英文逗号分隔 + trim
+      }),
     );
     expect(wrapper.emitted("saved")?.[0]).toEqual([null, "New Entry"]);
     wrapper.unmount();

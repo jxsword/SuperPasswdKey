@@ -24,12 +24,20 @@ pub struct EntryModel {
     pub custom_fields: Vec<CustomField>,
     /// KeePass "otp" 属性（otpauth:// URL 格式，KeePassXC 兼容——DR-005）
     pub otp: Option<String>,
+    /// 标签分类（S1b-2，SP-F-108）：KDBX4 原生 Tags 字符串列表，KeePassXC 互认；
+    /// 校验见 validate（非空、trim 后不接收空白标签；存储顺序即写入顺序）
+    pub tags: Vec<String>,
 }
 
 impl EntryModel {
     pub fn validate(&self) -> Result<(), SpError> {
         if self.title.trim().is_empty() {
             return Err(SpError::Parameter("entry title must not be empty".into()));
+        }
+        for t in &self.tags {
+            if t.trim().is_empty() {
+                return Err(SpError::Parameter("tag must not be empty or blank".into()));
+            }
         }
         for f in &self.custom_fields {
             if f.name.trim().is_empty() {

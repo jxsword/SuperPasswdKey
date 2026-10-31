@@ -8,7 +8,7 @@ const props = defineProps<{
   loading: boolean;
 }>();
 
-const emit = defineEmits<{ select: [title: string] }>();
+const emit = defineEmits<{ select: [title: string]; tag: [tag: string] }>();
 
 function displayUrl(url: string | null): string {
   if (!url) return "";
@@ -39,6 +39,18 @@ function displayUrl(url: string | null): string {
         <span class="otp-badge" v-if="e.has_otp">TOTP</span>
       </div>
       <div class="entry-sub">{{ e.username || displayUrl(e.url) || "—" }}</div>
+      <div class="entry-tags" v-if="e.tags.length">
+        <button
+          v-for="t in e.tags.slice(0, 3)"
+          :key="t"
+          class="tag-badge"
+          :title="`按标签「${t}」过滤`"
+          @click.stop="emit('tag', t)"
+        >
+          {{ t }}
+        </button>
+        <span class="tag-more" v-if="e.tags.length > 3">+{{ e.tags.length - 3 }}</span>
+      </div>
     </button>
   </div>
 </template>
@@ -98,5 +110,32 @@ function displayUrl(url: string | null): string {
   color: #fff;
   border-radius: 3px;
   padding: 1px 4px;
+}
+
+.entry-tags {
+  margin-top: 4px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.tag-badge {
+  font-size: 10px;
+  background: #e0f2f1;
+  color: var(--teal-dark);
+  border: none;
+  border-radius: 3px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+
+.tag-badge:hover {
+  background: #b2dfdb;
+}
+
+.tag-more {
+  font-size: 10px;
+  color: var(--muted);
 }
 </style>

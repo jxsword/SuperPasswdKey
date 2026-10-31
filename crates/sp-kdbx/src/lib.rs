@@ -122,6 +122,8 @@ fn apply_model(entry: &mut Entry, m: &EntryModel) {
     entry.set_url(m.url.as_deref());
     entry.set_notes(m.notes.as_deref());
     entry.set_raw_otp_value(m.otp.as_deref());
+    // 标签分类（SP-F-108）：KDBX4 原生 Tags 字符串列表，整表覆写
+    *entry.get_tags_mut() = m.tags.clone();
     // 先清掉旧的未保护自定义字段（保留名除外）
     for (k, _) in entry.additional_attributes() {
         let _ = entry.set_additional_attribute(&k, None);
@@ -148,6 +150,7 @@ fn model_from_entry(e: &Entry) -> EntryModel {
             })
             .collect(),
         otp: e.get_raw_otp_value().map(str::to_string),
+        tags: e.get_tags().clone(),
     }
 }
 
@@ -199,6 +202,8 @@ pub struct EntrySummary {
     pub username: Option<String>,
     pub url: Option<String>,
     pub has_otp: bool,
+    /// 标签分类（SP-F-108，S1b-2）：摘要携带 tags 供 GUI/CLI 过滤
+    pub tags: Vec<String>,
 }
 
 pub fn list_entry_summaries(db: &Database) -> Vec<EntrySummary> {
@@ -214,6 +219,7 @@ pub fn list_entry_summaries(db: &Database) -> Vec<EntrySummary> {
                 username: e.get_username().map(str::to_string),
                 url: e.get_url().map(str::to_string),
                 has_otp: e.get_raw_otp_value().is_some(),
+                tags: e.get_tags().clone(),
             })
         })
         .collect()

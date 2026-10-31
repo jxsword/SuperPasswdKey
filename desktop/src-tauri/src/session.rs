@@ -265,6 +265,8 @@ pub struct EntrySummaryDto {
     pub username: Option<String>,
     pub url: Option<String>,
     pub has_otp: bool,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
 }
 
 impl From<sp_kffi::FfiEntrySummary> for EntrySummaryDto {
@@ -274,6 +276,7 @@ impl From<sp_kffi::FfiEntrySummary> for EntrySummaryDto {
             username: s.username,
             url: s.url,
             has_otp: s.has_otp,
+            tags: s.tags,
         }
     }
 }
@@ -296,6 +299,8 @@ pub struct EntryDetailDto {
     pub notes: Option<String>,
     pub otp: Option<String>,
     pub custom_fields: Vec<CustomFieldDto>,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
 }
 
 impl From<sp_kffi::FfiEntryFull> for EntryDetailDto {
@@ -312,6 +317,7 @@ impl From<sp_kffi::FfiEntryFull> for EntryDetailDto {
                 .into_iter()
                 .map(CustomFieldDto::from)
                 .collect(),
+            tags: e.tags,
         }
     }
 }
@@ -338,6 +344,9 @@ pub struct EntryDraftDto {
     /// 编辑时由前端原样回传（保真，不渲染编辑控件——S1b-1 口径，S1b-2 提供 UI）
     #[serde(default)]
     pub custom_fields: Vec<CustomFieldDto>,
+    /// 标签分类（SP-F-108，S1b-2）
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 impl EntryDraftDto {
@@ -358,6 +367,7 @@ impl EntryDraftDto {
                     protected: f.protected,
                 })
                 .collect(),
+            tags: self.tags,
         }
     }
 }
@@ -590,6 +600,45 @@ mod tests {
             notes: None,
             otp: None,
             custom_fields: vec![],
+            tags: vec![],
+        }
+    }
+
+    #[test]
+    fn entry_tags_roundtrip_through_create_and_edit() {
+        // SP-F-108：标签经 GUI 创建/编辑写入，完整读回与摘要均可见
+        let f = Fixture::new("gui-tags");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+
+        let mut d = draft_dto("Tagged", "p");
+        d.tags = vec!["work".into(), " infra ".into()];
+        s.entry_create(d).expect("create");
+        let got = s.entry_get("Tagged").expect("get");
+        assert_eq!(got.tags, vec!["work".to_string(), " infra ".to_string()]);
+        let list = s.entry_list().expect("list");
+        let summary = list.iter().find(|e| e.title == "Tagged").expect("summary");
+        assert_eq!(summary.tags.len(), 2);
+
+        // 编辑改标签 → 覆写生效
+        let mut d2 = draft_dto("Tagged", "p");
+        d2.tags = vec!["personal".into()];
+        s.entry_edit("Tagged", d2).expect("edit");
+        let got = s.entry_get("Tagged").expect("get after edit");
+        assert_eq!(got.tags, vec!["personal".to_string()]);
+    }
+
+    #[test]
+    fn entry_create_blank_tag_rejected() {
+        // 校验语义与 CLI 同源（sp-core：标签 trim 后不得为空白）
+        let f = Fixture::new("gui-blanktag");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let mut d = draft_dto("BadTag", "p");
+        d.tags = vec!["   ".into()];
+        match s.entry_create(d) {
+            Err(err) => assert!(err.contains("参数错误"), "unexpected: {err}"),
+            Ok(()) => panic!("blank tag must be rejected"),
         }
     }
 

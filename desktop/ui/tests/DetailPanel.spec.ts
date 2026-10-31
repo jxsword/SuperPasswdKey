@@ -24,6 +24,7 @@ const baseDetail = {
   notes: "some notes",
   otp: null as string | null,
   custom_fields: [{ name: "api_key", value: "k-9", protected: false }],
+  tags: ["dev", "infra"],
 };
 
 describe("DetailPanel", () => {

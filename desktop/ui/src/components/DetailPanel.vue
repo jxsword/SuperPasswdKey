@@ -119,6 +119,10 @@ load();
     </div>
     <div class="error" v-if="error">{{ error }}</div>
     <template v-if="detail">
+      <div class="tags-row" v-if="detail.tags.length">
+        <span class="label">标签</span>
+        <span class="tag" v-for="t in detail.tags" :key="t">{{ t }}</span>
+      </div>
       <div class="field">
         <span class="label">用户名</span>
         <span class="value">{{ detail.username || "—" }}</span>
@@ -234,6 +238,21 @@ h2 {
   font-size: 12px;
   color: var(--danger);
   margin-bottom: 12px;
+}
+
+.tags-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.tag {
+  font-size: 11px;
+  background: #e0f2f1;
+  color: var(--teal-dark);
+  border-radius: 3px;
+  padding: 2px 8px;
 }
 
 .field {

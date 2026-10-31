@@ -196,6 +196,7 @@ sp init --db D:\keys\work.kdbx --keyfile E:\separate-medium\work.keyfile --kdf-t
 | `--notes <NOTES>` | — | 否 | 无 | 备注（自由文本） |
 | `--field <FIELD>` | — | 否 | 无 | 自定义字段 `键=值`，**可重复**多次；9 个保留名禁止：`Password/Title/URL/UserName/Notes/otp/BinaryData/Additional/BinaryDesc`（用了报参数错误，退出码 4） |
 | `--totp <TOTP>` | — | 否 | 无 | TOTP 链接，必须是 `otpauth://` 开头（否则退出码 4） |
+| `--tag <TAG>` | — | 否 | 无 | 标签分类，**可重复**多次（如 `--tag work --tag infra`）；存入 KDBX4 原生 Tags 字段，KeePassXC 互认；自动 trim，空标签被剔除（SP-F-108） |
 | `--attach <ATTACH>` | — | 否 | 无 | 附加一个文件（任意类型二进制；**仅取文件名**，同名会覆盖；已有条目补加/读回见 §5） |
 | `--db / --keyfile / -h` | — | — | — | 见 §2 |
 
@@ -266,7 +267,7 @@ sp item get github
 sp item get work-vpn -t
 ```
 
-- **用途**：`get` 无参时逐行列出 Title/UserName/Password/URL/Notes 与全部自定义字段；`-t` 直接拿 TOTP 码去登录。
+- **用途**：`get` 无参时逐行列出 Title/UserName/Password/URL/Tags（条目带标签时）/Notes 与全部自定义字段；`-t` 直接拿 TOTP 码去登录。
 - **注意事项**：无参输出把**明文密码整行打印**（脚本请勿 `grep` 后再 `echo` 进日志）；`-t` 输出每 30 秒变化的 6 位码，请勿保存/转发。
 - **关联命令**：`sp read github/totp`（脚本里取码的等价写法）。
 
@@ -282,15 +283,17 @@ sp item get work-vpn -t
 
 | 参数 | 简写 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
-| `--db / --keyfile / -h` | — | — | — | 见 §2（无其他参数） |
+| `--tag <TAG>` | — | 否 | 无 | 只列携带该标签的条目（精确匹配、大小写不敏感；SP-F-108） |
+| `--db / --keyfile / -h` | — | — | — | 见 §2 |
 
 **示例**：
 
 ```bash
 sp item list
+sp item list --tag work
 ```
 
-- **用途**：建条目前查重；确认导入结果；确认插件/桌面用库的条目清单。
+- **用途**：建条目前查重；确认导入结果；确认插件/桌面用库的条目清单；按标签筛选同类条目。
 - **注意事项**：只列**标题**，不显示用户名等字段；库需要解锁（会提示主密码）。
 - **关联命令**：`sp item get <标题>`（看某条详情）→ `sp item delete <标题>`（清理误建条目）。
 
