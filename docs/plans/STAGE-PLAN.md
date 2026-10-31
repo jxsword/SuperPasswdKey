@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | #1 | **S0 卫生与同步** | push develop、.gitignore 微调、AGENTS.md 扩充、CI 缓存 6 项、develop→main 合并 | 同步的 main/develop + 扩充的 AGENTS.md + 缓存 CI | ✅ 全部完成（交付说明：[S0-DELIVERY-2026-10-30.md](S0-DELIVERY-2026-10-30.md)） |
 | #2 | **S1a GUI 设计+MVP** | design_docs/16（Vue3+Vite/DR-014/信息架构/安全边界）+ 脚手架 + 解锁集成/列表/搜索/详情 | design_docs/16 + GUI MVP | ✅ 全部完成（交付说明：[S1a-DELIVERY-2026-10-30.md](S1a-DELIVERY-2026-10-30.md)） |
-| #3 | **S1b GUI 写路径** | **拆两批**：S1b-1=详情交互增强（显示/放大显示）+ 条目创建/编辑/删除（custom_fields 保真）；S1b-2=标签全栈（KDBX4 原生 Tags，CLI+GUI）→ 附件 add/list/get → 自定义字段编辑 UI | GUI 写路径完整 | ☐（S1b-1 见交付说明） |
+| #3 | **S1b GUI 写路径** | **拆两批**：S1b-1=详情交互增强（显示/放大显示）+ 条目创建/编辑/删除（custom_fields 保真）；S1b-2=标签全栈（KDBX4 原生 Tags，CLI+GUI）→ 附件 add/list/get → 自定义字段编辑 UI | GUI 写路径完整 | ✅ 全部完成（交付说明：[S1b-DELIVERY-2026-10-31.md](S1b-DELIVERY-2026-10-31.md)） |
 | #4 | **S3 Mimosa 基线审计** | 全仓审计（CLI+扩展+桌面+完整 GUI 含写路径）+ 修复 | 审计报告 + 修复 | ☐ |
 | #5 | **S1c 收尾+发布** | 导入导出向导/注入启动器/.env 工作流文档 + 发布前 Mimosa 复审 + **v0.4.0** 发版 | v0.4.0 | ☐ |
 | #6 | **S4 Android 批次 2** | 真机前置 + 任务书先行 | Android Keystore/生物/每 boot 主密码 | ☐ |
@@ -172,7 +172,7 @@
 
 - [x] S0 卫生与同步（会话 #1）
 - [x] S1a GUI 设计+MVP（会话 #2）
-- [ ] S1b GUI 写路径（会话 #3；S1b-1 交互增强+CRUD 已落地，S1b-2 标签/附件/自定义字段 UI 待做）
+- [x] S1b GUI 写路径（会话 #3；S1b-1 + S1b-2（标签/附件/自定义字段 UI）全部完成）
 - [ ] S3 Mimosa 基线审计（会话 #4，审计范围含完整 GUI 写路径）
 - [ ] S1c 收尾+v0.4.0 发布（会话 #5）
 - [ ] S4 Android 批次 2（会话 #6，真机前置）
