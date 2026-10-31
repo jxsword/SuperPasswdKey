@@ -125,10 +125,19 @@
 
 **前置**：用户真机可用；SP-F-803 待非 MIUI 真机 + Chrome 复核。
 
-**新会话提示词**：
+**新会话提示词**（2026-11-01 更新指向最新 HANDOFF）：
 
 ```text
-读取 docs/plans/HANDOFF-2026-10-30.md 与 docs/plans/STAGE-PLAN.md（§S4）作为上下文。Android 批次 2 启动：先撰写任务书（DR-013 批次 2：sp-kffi Keystore 包裹接口、每 boot 首次主密码 BOOT_COUNT、生物 CryptoObject 绑定、失效回退、SP-F-803 web 真机验证），交用户确认后按批次执行；真机不可用则任务书先行、执行挂起。
+读取 docs/plans/HANDOFF-2026-11-01.md 与 docs/plans/STAGE-PLAN.md（§S4、§DR-013、§进度标记）作为上下文，执行 S4（Android 批次 2）。
+
+先决条件核对（不满足则任务书先行、执行挂起）：① 用户真机可用（型号/Android 版本；SP-F-803 复核要求非 MIUI 真机）；② Chrome 可用。
+
+任务：
+① 撰写 S4 任务书（docs/plans/ 下，参照任务书_step7 体例）：sp-kffi Keystore 包裹接口（DR-013 批次 2）、每 boot 首次主密码 BOOT_COUNT、生物 CryptoObject 绑定、失效回退主密码、SP-F-803 web 真机验证方案、批次拆分与每批验收标准。
+② 绑定面评估：新增 FFI 接口 → UniFFI 绑定重生两步走（HANDOFF §3.6）；给出与 S1d-2 类型化自定义字段（FieldKind，backlog）同批/不同批绑定重生的取舍建议。
+③ 任务书交用户确认（重大决策走决策矩阵 + DR 记录），确认后按批次执行。
+
+纪律：Git Flow（feature/* → PR → CI 七 job 全绿 → 合并 develop）；机密/口令不经 Agent；vendor/keepass-ng 与两份 deny.toml 同步维护；Mimosa 拦截按 HANDOFF §3.7 处置。
 ```
 
 ---
