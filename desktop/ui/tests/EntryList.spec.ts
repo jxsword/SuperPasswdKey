@@ -4,8 +4,8 @@ import EntryList from "../src/components/EntryList.vue";
 import type { EntrySummary } from "../src/api";
 
 const entries: EntrySummary[] = [
-  { title: "GitHub", username: "me", url: "https://github.com", has_otp: true },
-  { title: "Local", username: null, url: null, has_otp: false },
+  { title: "GitHub", username: "me", url: "https://github.com", has_otp: true, tags: ["dev"] },
+  { title: "Local", username: null, url: null, has_otp: false, tags: [] },
 ];
 
 describe("EntryList", () => {
@@ -42,10 +42,18 @@ describe("EntryList", () => {
     expect(wrapper.text()).toContain("无匹配条目");
   });
 
+  it("点击标签徽标发出 tag 事件（按标签过滤入口）", async () => {
+    const wrapper = mount(EntryList, {
+      props: { entries, selected: null, loading: false },
+    });
+    await wrapper.find("button.tag-badge").trigger("click");
+    expect(wrapper.emitted("tag")?.[0]).toEqual(["dev"]);
+  });
+
   it("URL 提取 hostname", () => {
     const wrapper = mount(EntryList, {
       props: {
-        entries: [{ title: "X", username: null, url: "https://example.com/path", has_otp: false }],
+        entries: [{ title: "X", username: null, url: "https://example.com/path", has_otp: false, tags: [] }],
         selected: null,
         loading: false,
       },

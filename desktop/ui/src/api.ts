@@ -15,6 +15,7 @@ export interface EntrySummary {
   username: string | null;
   url: string | null;
   has_otp: boolean;
+  tags: string[];
 }
 
 export interface CustomField {
@@ -31,6 +32,7 @@ export interface EntryDetail {
   notes: string | null;
   otp: string | null;
   custom_fields: CustomField[];
+  tags: string[];
 }
 
 /** 条目草稿（创建/编辑共用；编辑时 custom_fields 原样回传保真） */
@@ -42,6 +44,7 @@ export interface EntryDraft {
   notes: string | null;
   otp: string | null;
   custom_fields: CustomField[];
+  tags: string[];
 }
 
 export interface SettingsFile {

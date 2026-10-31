@@ -410,6 +410,7 @@ pub fn build_candidates(findings: Vec<Finding>) -> DedupReport {
                     protected: false,
                 }],
                 otp: None,
+                tags: Vec::new(),
             });
         }
     }

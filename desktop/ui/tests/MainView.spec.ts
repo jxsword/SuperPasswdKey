@@ -24,9 +24,9 @@ vi.mock("../src/api", () => ({
 }));
 
 const entries: EntrySummary[] = [
-  { title: "GitHub", username: "me", url: "https://github.com", has_otp: false },
-  { title: "AWS Console", username: "admin", url: "https://aws.amazon.com", has_otp: true },
-  { title: "Local App", username: null, url: null, has_otp: false },
+  { title: "GitHub", username: "me", url: "https://github.com", has_otp: false, tags: ["dev"] },
+  { title: "AWS Console", username: "admin", url: "https://aws.amazon.com", has_otp: true, tags: ["cloud"] },
+  { title: "Local App", username: null, url: null, has_otp: false, tags: [] },
 ];
 
 describe("MainView", () => {
@@ -66,6 +66,7 @@ describe("MainView", () => {
       notes: null,
       otp: null,
       custom_fields: [],
+      tags: [],
     });
     const wrapper = mount(MainView, { props: { touch: () => {} } });
     await flushPromises();
@@ -86,7 +87,7 @@ describe("MainView", () => {
     api.entryCreate.mockResolvedValue(undefined);
     api.entryList.mockResolvedValue([
       ...entries,
-      { title: "Brand New", username: null, url: null, has_otp: false },
+      { title: "Brand New", username: null, url: null, has_otp: false, tags: [] },
     ]);
     await modal.find("#f-title").setValue("Brand New");
     await modal.find("button.primary").trigger("click");
@@ -108,6 +109,7 @@ describe("MainView", () => {
       notes: null,
       otp: null,
       custom_fields: [],
+      tags: [],
     });
     api.entryDelete.mockResolvedValue(undefined);
     const wrapper = mount(MainView, { props: { touch: () => {} } });

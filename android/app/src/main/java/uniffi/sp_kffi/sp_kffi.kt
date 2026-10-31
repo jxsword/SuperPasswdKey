@@ -1740,6 +1740,11 @@ data class FfiEntry (
     var `notes`: kotlin.String?
     , 
     var `otp`: kotlin.String?
+    , 
+    /**
+     * 标签分类（SP-F-108，S1b-2）
+     */
+    var `tags`: List<kotlin.String>
     
 ){
     
@@ -1762,6 +1767,7 @@ public object FfiConverterTypeFfiEntry: FfiConverterRustBuffer<FfiEntry> {
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterSequenceString.read(buf),
         )
     }
 
@@ -1771,7 +1777,8 @@ public object FfiConverterTypeFfiEntry: FfiConverterRustBuffer<FfiEntry> {
             FfiConverterOptionalString.allocationSize(value.`password`) +
             FfiConverterOptionalString.allocationSize(value.`url`) +
             FfiConverterOptionalString.allocationSize(value.`notes`) +
-            FfiConverterOptionalString.allocationSize(value.`otp`)
+            FfiConverterOptionalString.allocationSize(value.`otp`) +
+            FfiConverterSequenceString.allocationSize(value.`tags`)
     )
 
     override fun write(value: FfiEntry, buf: ByteBuffer) {
@@ -1781,6 +1788,7 @@ public object FfiConverterTypeFfiEntry: FfiConverterRustBuffer<FfiEntry> {
             FfiConverterOptionalString.write(value.`url`, buf)
             FfiConverterOptionalString.write(value.`notes`, buf)
             FfiConverterOptionalString.write(value.`otp`, buf)
+            FfiConverterSequenceString.write(value.`tags`, buf)
     }
 }
 
@@ -1803,6 +1811,11 @@ data class FfiEntryDraft (
     var `otp`: kotlin.String?
     , 
     var `customFields`: List<FfiCustomField>
+    , 
+    /**
+     * 标签分类（SP-F-108，S1b-2）
+     */
+    var `tags`: List<kotlin.String>
     
 ){
     
@@ -1826,6 +1839,7 @@ public object FfiConverterTypeFfiEntryDraft: FfiConverterRustBuffer<FfiEntryDraf
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterSequenceTypeFfiCustomField.read(buf),
+            FfiConverterSequenceString.read(buf),
         )
     }
 
@@ -1836,7 +1850,8 @@ public object FfiConverterTypeFfiEntryDraft: FfiConverterRustBuffer<FfiEntryDraf
             FfiConverterOptionalString.allocationSize(value.`url`) +
             FfiConverterOptionalString.allocationSize(value.`notes`) +
             FfiConverterOptionalString.allocationSize(value.`otp`) +
-            FfiConverterSequenceTypeFfiCustomField.allocationSize(value.`customFields`)
+            FfiConverterSequenceTypeFfiCustomField.allocationSize(value.`customFields`) +
+            FfiConverterSequenceString.allocationSize(value.`tags`)
     )
 
     override fun write(value: FfiEntryDraft, buf: ByteBuffer) {
@@ -1847,6 +1862,7 @@ public object FfiConverterTypeFfiEntryDraft: FfiConverterRustBuffer<FfiEntryDraf
             FfiConverterOptionalString.write(value.`notes`, buf)
             FfiConverterOptionalString.write(value.`otp`, buf)
             FfiConverterSequenceTypeFfiCustomField.write(value.`customFields`, buf)
+            FfiConverterSequenceString.write(value.`tags`, buf)
     }
 }
 
@@ -1863,6 +1879,11 @@ data class FfiEntrySummary (
     var `url`: kotlin.String?
     , 
     var `hasOtp`: kotlin.Boolean
+    , 
+    /**
+     * 标签分类（SP-F-108，S1b-2）
+     */
+    var `tags`: List<kotlin.String>
     
 ){
     
@@ -1883,6 +1904,7 @@ public object FfiConverterTypeFfiEntrySummary: FfiConverterRustBuffer<FfiEntrySu
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterSequenceString.read(buf),
         )
     }
 
@@ -1890,7 +1912,8 @@ public object FfiConverterTypeFfiEntrySummary: FfiConverterRustBuffer<FfiEntrySu
             FfiConverterString.allocationSize(value.`title`) +
             FfiConverterOptionalString.allocationSize(value.`username`) +
             FfiConverterOptionalString.allocationSize(value.`url`) +
-            FfiConverterBoolean.allocationSize(value.`hasOtp`)
+            FfiConverterBoolean.allocationSize(value.`hasOtp`) +
+            FfiConverterSequenceString.allocationSize(value.`tags`)
     )
 
     override fun write(value: FfiEntrySummary, buf: ByteBuffer) {
@@ -1898,6 +1921,7 @@ public object FfiConverterTypeFfiEntrySummary: FfiConverterRustBuffer<FfiEntrySu
             FfiConverterOptionalString.write(value.`username`, buf)
             FfiConverterOptionalString.write(value.`url`, buf)
             FfiConverterBoolean.write(value.`hasOtp`, buf)
+            FfiConverterSequenceString.write(value.`tags`, buf)
     }
 }
 
@@ -2146,6 +2170,34 @@ public object FfiConverterSequenceUInt: FfiConverterRustBuffer<List<kotlin.UInt>
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterUInt.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
         }
     }
 }

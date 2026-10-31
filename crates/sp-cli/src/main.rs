@@ -139,6 +139,9 @@ enum ItemOp {
         /// TOTP otpauth:// URL
         #[arg(long)]
         totp: Option<String>,
+        /// Tag for categorization (repeatable; KDBX4 native Tags, KeePassXC compatible)
+        #[arg(long)]
+        tag: Vec<String>,
         /// Attach a file
         #[arg(long)]
         attach: Option<PathBuf>,
@@ -153,8 +156,12 @@ enum ItemOp {
         #[arg(short = 't', long)]
         totp: bool,
     },
-    /// List entry titles
-    List,
+    /// List entry titles (optionally filtered by tag)
+    List {
+        /// Only entries carrying this tag (exact, case-insensitive)
+        #[arg(long)]
+        tag: Option<String>,
+    },
     /// Delete an entry (recycle bin semantics)
     Delete { title: String },
 }
@@ -213,6 +220,7 @@ fn run(cli: Cli) -> Result<(), SpError> {
                 notes,
                 field,
                 totp,
+                tag,
                 attach,
             } => commands::item_create(commands::CreateOptions {
                 cli_db: cli.db.clone(),
@@ -223,12 +231,13 @@ fn run(cli: Cli) -> Result<(), SpError> {
                 notes,
                 fields: field,
                 totp,
+                tags: tag,
                 attach,
             }),
             ItemOp::Get { title, field, totp } => {
                 commands::item_get(db, keyfile, title, field, totp)
             }
-            ItemOp::List => commands::item_list(db, keyfile),
+            ItemOp::List { tag } => commands::item_list(db, keyfile, tag.as_deref()),
             ItemOp::Delete { title } => commands::item_delete(db, keyfile, title),
         },
         Command::Attachment { op } => match op {

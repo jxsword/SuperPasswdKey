@@ -184,6 +184,8 @@ pub struct CreateOptions {
     pub notes: Option<String>,
     pub fields: Vec<(String, String)>,
     pub totp: Option<String>,
+    /// 标签分类（SP-F-108；可重复；trim 后空串剔除，校验在 EntryModel::validate）
+    pub tags: Vec<String>,
     pub attach: Option<PathBuf>,
 }
 
@@ -197,6 +199,7 @@ pub fn item_create(opts: CreateOptions) -> Result<(), SpError> {
         notes,
         fields,
         totp,
+        tags,
         attach,
     } = opts;
     let cli_db = cli_db.as_deref();
@@ -229,6 +232,11 @@ pub fn item_create(opts: CreateOptions) -> Result<(), SpError> {
             })
             .collect(),
         otp: totp,
+        tags: tags
+            .into_iter()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect(),
     };
     sp_kdbx::add_entry(&mut db, &model)?;
     // 附件（SP-F-104）
@@ -289,6 +297,9 @@ pub fn item_get(
                 m.password.as_ref().map(|p| p.as_str()).unwrap_or("")
             );
             println!("URL: {}", m.url.unwrap_or_default());
+            if !m.tags.is_empty() {
+                println!("Tags: {}", m.tags.join(", "));
+            }
             if !m.notes.as_deref().unwrap_or("").is_empty() {
                 println!("Notes: {}", m.notes.as_deref().unwrap_or(""));
             }
@@ -300,7 +311,12 @@ pub fn item_get(
     Ok(())
 }
 
-pub fn item_list(cli_db: Option<&Path>, cli_keyfile: Option<&Path>) -> Result<(), SpError> {
+/// 列条目标题（可按标签过滤：精确匹配、大小写不敏感；SP-F-108）
+pub fn item_list(
+    cli_db: Option<&Path>,
+    cli_keyfile: Option<&Path>,
+    tag: Option<&str>,
+) -> Result<(), SpError> {
     let cfg = config::load()?;
     let db_path = resolve_db(cli_db, &cfg)?;
     let c2 = cfg.clone();
@@ -309,7 +325,17 @@ pub fn item_list(cli_db: Option<&Path>, cli_keyfile: Option<&Path>) -> Result<()
         c.baseline_sha256 = cc.baseline_sha256.clone();
         config::save(cc)
     })?;
-    for t in sp_kdbx::list_titles(&db) {
+    let wanted = tag.map(|t| t.to_lowercase());
+    let mut titles: Vec<String> = sp_kdbx::list_entry_summaries(&db)
+        .into_iter()
+        .filter(|s| match &wanted {
+            None => true,
+            Some(w) => s.tags.iter().any(|t| t.to_lowercase() == *w),
+        })
+        .map(|s| s.title)
+        .collect();
+    titles.sort();
+    for t in titles {
         println!("{t}");
     }
     Ok(())

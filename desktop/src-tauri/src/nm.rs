@@ -142,6 +142,7 @@ impl NmActionSession for DesktopNmSession {
             notes: None,
             otp: None,
             custom_fields: vec![],
+            tags: vec![],
         };
         let outcome = match sp_nmhost::actions::plan_save_login(&summaries, host, username) {
             SavePlan::Update { title } => {

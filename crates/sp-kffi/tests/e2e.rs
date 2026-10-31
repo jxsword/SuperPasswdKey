@@ -19,6 +19,7 @@ fn draft(title: &str, password: &str) -> FfiEntryDraft {
         notes: None,
         otp: None,
         custom_fields: vec![],
+        tags: vec![],
     }
 }
 
@@ -483,6 +484,7 @@ fn find_entry_full_returns_custom_fields_rust_only_surface() {
         notes: None,
         otp: None,
         custom_fields: full.custom_fields.clone(),
+        tags: vec!["infra".into(), "prod".into()],
     };
     vault
         .edit_entry("Full Entry".into(), draft2)
@@ -504,6 +506,8 @@ fn find_entry_full_returns_custom_fields_rust_only_surface() {
     .expect("reopen");
     let after = vault2.find_entry_full("Full Entry".into()).expect("after");
     assert_eq!(after.password.as_deref(), Some("pass-2"));
+    // 标签 roundtrip（SP-F-108：编辑写入的 tags 重开仍在）
+    assert_eq!(after.tags, vec!["infra".to_string(), "prod".to_string()]);
     assert_eq!(
         after
             .custom_fields
