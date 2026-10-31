@@ -1,6 +1,6 @@
 # 16 桌面 GUI：Vue 3 + Vite 全功能界面（DR-014）
 
-- 状态：v1.1（2026-10-31，新增 §8 手工验收清单与启动指引——GUI 启动方式、sp-desktop.exe 与 sp.exe 关系、mermaid 协作图；v1.0 2026-10-30，S1a 设计与 MVP 落地）
+- 状态：v1.2（2026-10-31，S1b-1 写路径落地：详情交互增强（显示/放大显示下拉）+ 条目创建/编辑/删除 + custom_fields 保真读回（sp-kffi Rust-only 增量）；v1.1 2026-10-31 新增 §8 手工验收清单与启动指引；v1.0 2026-10-30，S1a 设计与 MVP 落地）
 - 上游依赖：design_docs/15（桌面形态，托盘/会话/NM 嵌入基座）、DR-013（凭据驻留策略）、DR-012（actor 内凭据因子）、SP-F-9xx（SRS §3.9 桌面需求）
 - 范围：S1a = 设计与只读 MVP（解锁/列表/搜索/详情/TOTP/复制）；写路径（条目 CRUD/附件/TOTP 编辑）在 S1b，导入导出/注入启动器在 S1c
 
@@ -50,28 +50,32 @@ design_docs/15 §3 将 `desktop/ui/` 定为"静态零 Node 依赖"前端（v0.3.
 
 视图清单（S1a MVP → S1b/S1c 增量）：
 
-| 视图 | S1a | S1b | S1c |
-|---|---|---|---|
-| 解锁面板（密码 + keyfile） | ✅ | | |
-| 主界面（列表 + 搜索 + 详情只读） | ✅ | | |
-| TOTP 动态码 + 复制 | ✅ | | |
-| 条目编辑器（字段/自定义字段/TOTP） | | ✅ | |
-| 附件管理（add/list/get） | | ✅ | |
-| 导入/导出向导 | | | ✅ |
-| 注入启动器 | | | ✅ |
+| 视图 | S1a | S1b-1 | S1b-2 | S1c |
+|---|---|---|---|---|
+| 解锁面板（密码 + keyfile） | ✅ | | | |
+| 主界面（列表 + 搜索 + 详情只读） | ✅ | | | |
+| TOTP 动态码 + 复制 | ✅ | | | |
+| 详情交互增强：显示/放大显示（1Password 对标） | | ✅ | | |
+| 条目创建/编辑/删除（表单校验对齐 CLI） | | ✅ | | |
+| 自定义字段编辑 UI（S1b-1 仅保真回传） | | | ✅ | |
+| 标签（KDBX4 原生 Tags，全栈 CLI+GUI） | | | ✅ | |
+| 附件管理（add/list/get） | | | ✅ | |
+| 导入/导出向导 | | | | ✅ |
+| 注入启动器 | | | | ✅ |
 
 ## 3. 组件树
 
 ```
 App.vue（根：会话状态轮询 5s → 视图切换 + 顶栏）
 ├── UnlockPanel.vue          解锁面板（密码/keyfile/解锁按钮/错误提示）
-├── MainView.vue             解锁态主界面
-│   ├── SearchBox.vue        搜索框（即时过滤，防抖 150ms）
+├── MainView.vue             解锁态主界面（＋ 新的项目入口）
+│   ├── SearchBox.vue        搜索框（即时过滤）
 │   ├── EntryList.vue        条目列表（标题/用户名/URL/TOTP 标记）
-│   └── DetailPanel.vue      详情只读（MVP）
-│       ├── FieldRow.vue     单字段行（标签 + 值 + 复制按钮）
-│       ├── PasswordField.vue 密码字段（掩码 ●●●● + 复制按钮）
-│       └── TotpField.vue    TOTP 动态码（30s 轮询 + 复制按钮）
+│   ├── EntryFormModal.vue   创建/编辑表单（S1b-1；校验对齐 CLI，custom_fields 保真回传）
+│   └── DetailPanel.vue      详情（S1b-1：编辑/删除入口 + 自定义字段只读展示）
+│       ├── 密码行 ▾ 下拉     显示（掩码↔明文）/ 放大显示 / 复制
+│       ├── LargeTypeModal.vue 放大显示（全屏大字号，点击/Esc 关闭）
+│       └── TotpField         TOTP 动态码（30s 轮询 + 复制）
 ├── SettingsPanel.vue        设置（空闲/绝对分钟 + 自启，复用 v0.3.0 语义）
 └── TopBar.vue               顶栏（状态/锁定/设置入口）
 ```
@@ -91,11 +95,16 @@ GUI 操作 ↔ Tauri command ↔ sp-kffi/Vault 调用（机密纪律：password 
 | 读设置 | `get_settings` | `settings::load_or_default()` | — |
 | 保存设置 | `save_settings(s)` | settings.json + 自启对账 | — |
 | **列条目** | `entry_list`（新增） | `Session::entry_list()`（惰性锁库检查） | `Vault::list_entry_summaries()` |
-| **取详情** | `entry_get(title)`（新增） | `Session::entry_get()` | `Vault::find_entry()`（含密码，仅详情视图瞬态展示） |
+| **取详情** | `entry_get(title)`（新增） | `Session::entry_get()` | `Vault::find_entry_full()`（Rust-only 面，含 custom_fields） |
 | **TOTP 动态码** | `entry_totp(title)`（新增） | `Session::entry_totp()` | `Vault::entry_totp_now()` |
+| **新建条目** | `entry_create(draft)`（S1b-1） | `Session::entry_create()` | `Vault::add_entry()` + `save_session()` |
+| **编辑条目** | `entry_edit(old_title, draft)`（S1b-1） | `Session::entry_edit()` | `Vault::edit_entry()`（旧快照进 history，SP-F-103）+ `save_session()` |
+| **删除条目** | `entry_delete(title)`（S1b-1） | `Session::entry_delete()` | `Vault::delete_entry()`（Rust-only 面）+ `save_session()` |
 | **复制密码/TOTP** | `clip_copy(text)`（新增） | arboard 写剪贴板 + 30s 超时清空（对齐 CLI clip 语义） | — |
 
-写路径 command（`entry_create`/`entry_edit`/`entry_delete`/`attachment_*`，S1b）与导入导出/注入（S1c）预留命名，不在本期实现。
+**custom_fields 保真口径（S1b-1）**：sp-kffi 的 FFI 读回面 `FfiEntry` 不含 custom_fields（v0.1 限制，design_docs/15 §9）——GUI 编辑若以其回写会清空自定义字段。解法：sp-kffi 新增**不经 UniFFI 导出的 Rust-only 面**（`find_entry_full` → `FfiEntryFull` 含 custom_fields、`delete_entry`；无 uniffi derive → Kotlin 绑定零漂移，CI android job 漂移检查零变化），desktop 以 Rust 依赖直接调用。S1b-1 编辑表单不渲染 custom_fields 编辑控件、仅原样回传（保真）；编辑 UI 在 S1b-2。
+
+写路径 command（`attachment_*`，S1b-2）与导入导出/注入（S1c）预留命名，不在本期实现。
 
 ## 5. 安全边界
 

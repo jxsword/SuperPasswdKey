@@ -21,7 +21,7 @@ use tauri::{
     Manager, State,
 };
 
-use session::{describe, EntryDetailDto, EntrySummaryDto, Session, SessionStatus};
+use session::{describe, EntryDetailDto, EntryDraftDto, EntrySummaryDto, Session, SessionStatus};
 use settings::SettingsFile;
 
 /// 会话锁（Mutex<Session>；Vault Send+!Sync 由 Mutex 补足 Sync）。
@@ -98,6 +98,40 @@ fn entry_totp(state: State<SessionState>, title: String) -> Result<String, Strin
     state.0.lock().expect("session poisoned").entry_totp(&title)
 }
 
+/// 新建条目（复用 Vault::add_entry + save_session 零凭据保存；同名允许，对齐 CLI 口径）
+#[tauri::command]
+fn entry_create(state: State<SessionState>, draft: EntryDraftDto) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .entry_create(draft)
+}
+
+/// 编辑条目（按 old_title 定位，标题可经 draft 改写；旧快照进 history，SP-F-103 单源）
+#[tauri::command]
+fn entry_edit(
+    state: State<SessionState>,
+    old_title: String,
+    draft: EntryDraftDto,
+) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .entry_edit(&old_title, draft)
+}
+
+/// 删除条目（复用 Vault::delete_entry + save_session）
+#[tauri::command]
+fn entry_delete(state: State<SessionState>, title: String) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .entry_delete(&title)
+}
+
 /// 复制到剪贴板（arboard 写入 + 30s 超时清空，对齐 CLI sp clip 语义；
 /// 后台线程清空不阻塞 UI；Win+V 历史不受 sp 控制——提示文案与 CLI 一致）
 #[tauri::command]
@@ -138,6 +172,9 @@ fn main() {
             entry_list,
             entry_get,
             entry_totp,
+            entry_create,
+            entry_edit,
+            entry_delete,
             clip_copy
         ])
         .setup(move |app| {
