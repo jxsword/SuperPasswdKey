@@ -541,3 +541,34 @@ fn delete_entry_rust_only_surface_removes_entry() {
         other => panic!("expected NotFound for missing entry, got {other:?}"),
     }
 }
+
+#[test]
+fn list_attachments_rust_only_surface() {
+    // GUI 附件管理（S1b-2b）：list_attachments 列名（仅 Rust 面）
+    let f = make_fixture("attlist", FfiKdfParams::default(), None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db");
+    vault.add_entry(draft("WithFiles", "p")).expect("add");
+    vault
+        .add_attachment("WithFiles".into(), "a.txt".into(), b"alpha".to_vec())
+        .expect("add att 1");
+    vault
+        .add_attachment("WithFiles".into(), "b.bin".into(), vec![1, 2, 3])
+        .expect("add att 2");
+
+    let mut names = vault
+        .list_attachments("WithFiles".into())
+        .expect("list_attachments");
+    names.sort();
+    assert_eq!(names, vec!["a.txt".to_string(), "b.bin".to_string()]);
+    // 无附件条目 → 空表
+    vault.add_entry(draft("NoFiles", "p")).expect("add 2");
+    assert!(vault
+        .list_attachments("NoFiles".into())
+        .expect("empty list")
+        .is_empty());
+}

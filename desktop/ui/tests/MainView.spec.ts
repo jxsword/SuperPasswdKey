@@ -11,6 +11,9 @@ const api = vi.hoisted(() => ({
   entryCreate: vi.fn(),
   entryEdit: vi.fn(),
   entryDelete: vi.fn(),
+  attachmentList: vi.fn(),
+  attachmentAdd: vi.fn(),
+  attachmentDownload: vi.fn(),
 }));
 
 vi.mock("../src/api", () => ({
@@ -21,6 +24,9 @@ vi.mock("../src/api", () => ({
   entryCreate: api.entryCreate,
   entryEdit: api.entryEdit,
   entryDelete: api.entryDelete,
+  attachmentList: api.attachmentList,
+  attachmentAdd: api.attachmentAdd,
+  attachmentDownload: api.attachmentDownload,
 }));
 
 const entries: EntrySummary[] = [
@@ -33,6 +39,7 @@ describe("MainView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.entryList.mockResolvedValue(entries);
+    api.attachmentList.mockResolvedValue([]);
   });
 
   it("挂载时加载条目列表", async () => {

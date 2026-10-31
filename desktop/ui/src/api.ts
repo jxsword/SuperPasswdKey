@@ -83,5 +83,19 @@ export const entryEdit = (oldTitle: string, draft: EntryDraft) =>
 /** 删除条目 */
 export const entryDelete = (title: string) => invoke<void>("entry_delete", { title });
 
+/** 列条目附件名 */
+export const attachmentList = (title: string) => invoke<string[]>("attachment_list", { title });
+
+/** 添加附件（同名覆盖，对齐 CLI 语义；data 为原始字节） */
+export const attachmentAdd = (title: string, name: string, data: Uint8Array) =>
+  invoke<void>("attachment_add", { title, name, data: Array.from(data) });
+
+/**
+ * 下载附件：Rust 弹系统保存对话框 → 落盘 + 限权收敛（icacls/0600，CLI 同语义）。
+ * 返回落盘路径；用户取消返回空串。
+ */
+export const attachmentDownload = (title: string, name: string) =>
+  invoke<string>("attachment_download", { title, name });
+
 /** 复制到剪贴板（Rust 侧 arboard + 30s 超时清空，对齐 CLI clip 语义） */
 export const clipCopy = (text: string) => invoke<void>("clip_copy", { text });

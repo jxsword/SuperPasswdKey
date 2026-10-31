@@ -88,9 +88,47 @@ describe("EntryFormModal", () => {
     wrapper.unmount();
   });
 
-  it("编辑模式不渲染自定义字段编辑控件（S1b-1 口径）", () => {
+  it("编辑模式：自定义字段行预填可编辑（S1b-2b）", async () => {
+    api.entryEdit.mockResolvedValue(undefined);
     const wrapper = mount(EntryFormModal, { props: { mode: "edit", initial } });
-    expect(wrapper.text()).not.toContain("api_key");
+    const names = wrapper.findAll("input.cf-name");
+    expect(names).toHaveLength(1);
+    expect((names[0].element as HTMLInputElement).value).toBe("api_key");
+    // 保留名校验
+    await names[0].setValue("Password");
+    await wrapper.find("button.primary").trigger("click");
+    expect(api.entryEdit).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("保留名");
+    // 改回并提交：custom_fields 随草稿回传
+    await names[0].setValue("api_key2");
+    await wrapper.find("#f-title").setValue("GitHub");
+    await wrapper.find("button.primary").trigger("click");
+    await flushPromises();
+    expect(api.entryEdit).toHaveBeenCalledWith(
+      "GitHub",
+      expect.objectContaining({
+        custom_fields: [{ name: "api_key2", value: "k-9", protected: false }],
+      }),
+    );
+    wrapper.unmount();
+  });
+
+  it("添加/删除自定义字段行", async () => {
+    const wrapper = mount(EntryFormModal, { props: { mode: "create" } });
+    expect(wrapper.findAll("input.cf-name")).toHaveLength(0);
+    await wrapper.find("button.cf-add").trigger("click");
+    await wrapper.find("button.cf-add").trigger("click");
+    expect(wrapper.findAll("input.cf-name")).toHaveLength(2);
+    const rows = wrapper.findAll(".cf-row");
+    await rows[0].findAll("button")[0].trigger("click"); // ✕ 删除第一行
+    expect(wrapper.findAll("input.cf-name")).toHaveLength(1);
+    // 空名行提交时被过滤（名称与值均空的行不进草稿）
+    await wrapper.find("#f-title").setValue("T");
+    await wrapper.find("button.primary").trigger("click");
+    await flushPromises();
+    expect(api.entryCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ custom_fields: [] }),
+    );
     wrapper.unmount();
   });
 });

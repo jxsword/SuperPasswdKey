@@ -1,6 +1,6 @@
 # 需求追踪矩阵（Requirements Traceability Matrix）
 
-- SRS 版本：V1.7（2026-10-31；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
+- SRS 版本：V1.8（2026-10-31；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
 - 状态图例：🟢 已覆盖｜🟡 部分（后置项注明）｜⚪ 计划中
 
 | 需求编号 | 需求标题 | 来源（基线/DR） | 设计文档 | 测试用例 | 状态 |
@@ -61,6 +61,7 @@
 | SP-F-906 | NM host 单进程嵌入（协议库化复用/locked 弹窗/EOF 退出） | DR-013 | 15 | 模拟 NM 握手测试全链路（serve+适配器：ping→解锁→get-logins→get-secret→lock→locked，2026-10-29）；register.ps1 -Target desktop 双轨；旧 sp-nmhost 回归（30 测试不变）；手工 Chrome 验证待用户 | 🟡 手工项待用户 |
 | SP-F-907 | 桌面浏览器填充链路（URL 匹配/单条取密，纪律单源） | DR-013 | 15 | 匹配命中+子串反例+响应无密码+锁定拒绝断言（模拟握手测试内，2026-10-29） | 🟢 |
 | SP-F-908 | 桌面 GUI 条目浏览（列表/搜索/详情只读/TOTP/复制，S1a MVP） | DR-014 | 16 | 组件测试（vitest：列表渲染/搜索过滤/详情/TOTP 轮询/复制调用）+ Rust session 测试扩展（entry_list/entry_get/entry_totp/clip_copy 惰性锁库语义）；CI desktop job 全绿；真实库手工验收待用户 | 🟢（自动化）/🟡 手工项待用户 |
-| SP-F-909 | 桌面 GUI 条目写路径（创建/编辑/删除 + 显示/放大显示，S1b-1） | DR-014, SP-F-103 | 16 | kffi find_entry_full/delete_entry 单测（custom_fields 保真 roundtrip + 删除 NotFound）；Rust session 测试（创建/编辑改名/删除/锁定拒绝/错 otp 拒绝）；vitest（表单校验对齐 CLI/保真回传/删除确认/放大显示模态/显示切换）；真实库手工验收待用户 | 🟢（自动化）/🟡 手工项待用户 |
+| SP-F-909 | 桌面 GUI 条目写路径（创建/编辑/删除 + 显示/放大显示，S1b-1；S1b-2b 扩展自定义字段编辑 UI） | DR-014, SP-F-103 | 16 | kffi find_entry_full/delete_entry 单测（custom_fields 保真 roundtrip + 删除 NotFound）；Rust session 测试（创建/编辑改名/删除/锁定拒绝/错 otp 拒绝/空白标签拒绝）；vitest（表单校验对齐 CLI/自定义字段行增删与保留名校验/删除确认/放大显示模态/显示切换）；真实库手工验收待用户 | 🟢（自动化）/🟡 手工项待用户 |
+| SP-F-910 | 桌面 GUI 附件管理（列表/添加/下载，S1b-2b） | SP-F-104, DR-014 | 16 | kffi list_attachments e2e + desktop session 测试（add/list/get roundtrip + 同名覆盖 + 锁定拒绝）；vitest（附件渲染/下载调用/添加流）；下载限权 `icacls` 核对为手工项 | 🟢（自动化）/🟡 手工项待用户 |
 
 \* 测试用例编号在实现阶段（H3/H4/H5/H6/H7）按此前缀回填；round-trip 对拍测试覆盖 SP-F-101/102/103/104/601 的互操作维度。

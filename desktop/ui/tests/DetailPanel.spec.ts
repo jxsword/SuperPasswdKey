@@ -7,6 +7,9 @@ const api = vi.hoisted(() => ({
   entryTotp: vi.fn(),
   clipCopy: vi.fn(),
   entryDelete: vi.fn(),
+  attachmentList: vi.fn(),
+  attachmentAdd: vi.fn(),
+  attachmentDownload: vi.fn(),
 }));
 
 vi.mock("../src/api", () => ({
@@ -14,6 +17,9 @@ vi.mock("../src/api", () => ({
   entryTotp: api.entryTotp,
   clipCopy: api.clipCopy,
   entryDelete: api.entryDelete,
+  attachmentList: api.attachmentList,
+  attachmentAdd: api.attachmentAdd,
+  attachmentDownload: api.attachmentDownload,
 }));
 
 const baseDetail = {
@@ -31,6 +37,22 @@ describe("DetailPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    api.attachmentList.mockResolvedValue(["a.txt", "b.bin"]);
+  });
+
+  it("渲染附件列表与下载按钮", async () => {
+    api.entryGet.mockResolvedValue(baseDetail);
+    api.attachmentDownload.mockResolvedValue("C:\\Downloads\\a.txt");
+    const wrapper = mount(DetailPanel, { props: { title: "GitHub", touch: () => {} } });
+    await flushPromises();
+    expect(wrapper.text()).toContain("a.txt");
+    expect(wrapper.text()).toContain("b.bin");
+    expect(wrapper.text()).toContain("添加附件");
+    await wrapper.findAll("button.copy").filter((b) => b.text() === "下载")[0].trigger("click");
+    await flushPromises();
+    expect(api.attachmentDownload).toHaveBeenCalledWith("GitHub", "a.txt");
+    expect(wrapper.text()).toContain("已保存 a.txt");
+    wrapper.unmount();
   });
 
   it("渲染条目字段与自定义字段（密码掩码）", async () => {

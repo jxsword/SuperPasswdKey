@@ -132,6 +132,64 @@ fn entry_delete(state: State<SessionState>, title: String) -> Result<(), String>
         .entry_delete(&title)
 }
 
+/// 列条目附件名（S1b-2b）
+#[tauri::command]
+fn attachment_list(state: State<SessionState>, title: String) -> Result<Vec<String>, String> {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .attachment_list(&title)
+}
+
+/// 添加附件（同名覆盖，语义对齐 CLI sp attachment add；保存经 save_session 零凭据）
+#[tauri::command]
+fn attachment_add(
+    state: State<SessionState>,
+    title: String,
+    name: String,
+    data: Vec<u8>,
+) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .attachment_add(&title, &name, data)
+}
+
+/// 下载附件：弹出系统保存对话框 → Rust 落盘 + 限权收敛（icacls/0600，
+/// 复用 sp-core::fsperms 单源——与 CLI attachment_get 同语义）。返回落盘路径；
+/// 用户取消返回空串。
+#[tauri::command]
+fn attachment_download(
+    app: tauri::AppHandle,
+    state: State<SessionState>,
+    title: String,
+    name: String,
+) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(target) = app
+        .dialog()
+        .file()
+        .set_file_name(&name)
+        .blocking_save_file()
+    else {
+        return Ok(String::new());
+    };
+    let path = match target {
+        tauri_plugin_dialog::FilePath::Path(p) => p,
+        other => return Err(format!("unsupported dialog target: {other:?}")),
+    };
+    let data = state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .attachment_get(&title, &name)?;
+    std::fs::write(&path, &data).map_err(|e| format!("write '{}': {e}", path.display()))?;
+    sp_core::fsperms::restrict(&path).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// 复制到剪贴板（arboard 写入 + 30s 超时清空，对齐 CLI sp clip 语义；
 /// 后台线程清空不阻塞 UI；Win+V 历史不受 sp 控制——提示文案与 CLI 一致）
 #[tauri::command]
@@ -162,6 +220,7 @@ fn main() {
 
     tauri::Builder::default()
         .manage(SessionState(Arc::clone(&session)))
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             session_status,
             unlock,
@@ -175,6 +234,9 @@ fn main() {
             entry_create,
             entry_edit,
             entry_delete,
+            attachment_list,
+            attachment_add,
+            attachment_download,
             clip_copy
         ])
         .setup(move |app| {

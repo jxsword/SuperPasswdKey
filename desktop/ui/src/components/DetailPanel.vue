@@ -16,10 +16,12 @@ const emit = defineEmits<{
 }>();
 
 const detail = ref<EntryDetail | null>(null);
+const attachments = ref<string[]>([]);
 const totpCode = ref("");
 const totpError = ref("");
 const error = ref("");
 const copied = ref("");
+const notice = ref("");
 const revealed = ref(false); // 显示/隐藏（切条目复位）
 const menuOpen = ref(false); // 密码行 ▾ 下拉
 const showLargeType = ref(false);
@@ -41,9 +43,51 @@ async function load() {
       await refreshTotp();
       startTotpPolling();
     }
+    await loadAttachments();
   } catch (e) {
     error.value = String(e);
   }
+}
+
+async function loadAttachments() {
+  try {
+    attachments.value = await api.attachmentList(props.title);
+  } catch (e) {
+    // 附件列表失败不阻断详情展示
+    attachments.value = [];
+    console.warn(String(e));
+  }
+}
+
+async function onAttachmentChosen(ev: Event) {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    await api.attachmentAdd(props.title, file.name, bytes);
+    setNotice(`已添加附件 ${file.name}（同名覆盖）`);
+    await loadAttachments();
+  } catch (e) {
+    error.value = String(e);
+  }
+}
+
+async function downloadAttachment(name: string) {
+  try {
+    const path = await api.attachmentDownload(props.title, name);
+    if (path) setNotice(`已保存 ${name} → ${path}`);
+  } catch (e) {
+    error.value = String(e);
+  }
+}
+
+function setNotice(msg: string) {
+  notice.value = msg;
+  window.setTimeout(() => {
+    if (notice.value === msg) notice.value = "";
+  }, 3000);
 }
 
 async function refreshTotp() {
@@ -163,7 +207,20 @@ load();
         </span>
         <button class="copy" :disabled="!totpCode" @click="copy(totpCode, 'TOTP')">复制</button>
       </div>
+      <div class="field" v-for="a in attachments" :key="a">
+        <span class="label">附件</span>
+        <span class="value mono">{{ a }}</span>
+        <button class="copy" @click="downloadAttachment(a)">下载</button>
+      </div>
+      <div class="attach-actions">
+        <label class="copy attach-add">
+          添加附件
+          <input type="file" hidden @change="onAttachmentChosen" />
+        </label>
+        <span class="attach-hint">同名覆盖；下载落盘后自动限权（仅当前用户可读）</span>
+      </div>
       <div class="copied" v-if="copied">已复制 {{ copied }}，30 秒后自动清空</div>
+      <div class="copied" v-if="notice">{{ notice }}</div>
     </template>
 
     <LargeTypeModal
@@ -367,6 +424,23 @@ h2 {
   margin-top: 12px;
   font-size: 12px;
   color: var(--teal-dark);
+}
+
+.attach-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.attach-add {
+  display: inline-block;
+  cursor: pointer;
+}
+
+.attach-hint {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .confirm-overlay {

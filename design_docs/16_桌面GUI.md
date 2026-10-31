@@ -1,6 +1,6 @@
 # 16 桌面 GUI：Vue 3 + Vite 全功能界面（DR-014）
 
-- 状态：v1.3（2026-10-31，S1b-2 标签全栈落地：KDBX4 原生 Tags——GUI 表单/列表徽标点击过滤/详情行 + 搜索匹配标签；v1.2 2026-10-31，S1b-1 写路径落地：详情交互增强（显示/放大显示下拉）+ 条目创建/编辑/删除 + custom_fields 保真读回（sp-kffi Rust-only 增量）；v1.1 2026-10-31 新增 §8 手工验收清单与启动指引；v1.0 2026-10-30，S1a 设计与 MVP 落地）
+- 状态：v1.4（2026-10-31，S1b-2b 落地：详情页附件管理（列表/添加/下载限权，tauri-plugin-dialog Rust 侧调用）+ 自定义字段编辑 UI（v0.1 protected 不持久化如实披露）+ sp-core::fsperms 限权单源下沉；v1.3 标签全栈；v1.2 S1b-1 写路径；v1.1 §8 手工验收；v1.0 S1a 设计与 MVP 落地）
 - 上游依赖：design_docs/15（桌面形态，托盘/会话/NM 嵌入基座）、DR-013（凭据驻留策略）、DR-012（actor 内凭据因子）、SP-F-9xx（SRS §3.9 桌面需求）
 - 范围：S1a = 设计与只读 MVP（解锁/列表/搜索/详情/TOTP/复制）；写路径（条目 CRUD/附件/TOTP 编辑）在 S1b，导入导出/注入启动器在 S1c
 
@@ -57,8 +57,9 @@ design_docs/15 §3 将 `desktop/ui/` 定为"静态零 Node 依赖"前端（v0.3.
 | TOTP 动态码 + 复制 | ✅ | | | |
 | 详情交互增强：显示/放大显示（1Password 对标） | | ✅ | | |
 | 条目创建/编辑/删除（表单校验对齐 CLI） | | ✅ | | |
-| 自定义字段编辑 UI（S1b-1 仅保真回传） | | | ☐ | |
+| 自定义字段编辑 UI（S1b-2b：表单行增删 + 保留名校验；v0.1 protected 不持久化） | | | ✅ | |
 | 标签（KDBX4 原生 Tags，全栈 CLI+GUI） | | | ✅ | |
+| 附件管理（列表/添加/下载限权） | | | ✅ | |
 | 附件管理（add/list/get） | | | ✅ | |
 | 导入/导出向导 | | | | ✅ |
 | 注入启动器 | | | | ✅ |
@@ -100,6 +101,7 @@ GUI 操作 ↔ Tauri command ↔ sp-kffi/Vault 调用（机密纪律：password 
 | **新建条目** | `entry_create(draft)`（S1b-1） | `Session::entry_create()` | `Vault::add_entry()` + `save_session()` |
 | **编辑条目** | `entry_edit(old_title, draft)`（S1b-1） | `Session::entry_edit()` | `Vault::edit_entry()`（旧快照进 history，SP-F-103）+ `save_session()` |
 | **删除条目** | `entry_delete(title)`（S1b-1） | `Session::entry_delete()` | `Vault::delete_entry()`（Rust-only 面）+ `save_session()` |
+| **附件列表/添加/下载** | `attachment_list/add/download`（S1b-2b） | `Session::attachment_*()` | `Vault::list_attachments()`（Rust-only 面）/`add_attachment()`/`get_attachment()` + fsperms 限权 + tauri-plugin-dialog（Rust 侧保存对话框） |
 | **复制密码/TOTP** | `clip_copy(text)`（新增） | arboard 写剪贴板 + 30s 超时清空（对齐 CLI clip 语义） | — |
 
 **custom_fields 保真口径（S1b-1）**：sp-kffi 的 FFI 读回面 `FfiEntry` 不含 custom_fields（v0.1 限制，design_docs/15 §9）——GUI 编辑若以其回写会清空自定义字段。解法：sp-kffi 新增**不经 UniFFI 导出的 Rust-only 面**（`find_entry_full` → `FfiEntryFull` 含 custom_fields、`delete_entry`；无 uniffi derive → Kotlin 绑定零漂移，CI android job 漂移检查零变化），desktop 以 Rust 依赖直接调用。S1b-1 编辑表单不渲染 custom_fields 编辑控件、仅原样回传（保真）；编辑 UI 在 S1b-2。

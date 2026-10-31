@@ -1,6 +1,6 @@
 # SuperPasswdKey 软件需求规格说明书（SRS）
 
-- 版本：**V1.7（2026-10-31，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP；V1.6 变更=新增 SP-F-909 桌面 GUI 条目写路径（S1b-1：创建/编辑/删除 + 显示/放大显示交互）；V1.7 变更=新增 SP-F-108 标签分类（KDBX4 原生 Tags 全栈：CLI+GUI，S1b-2））**
+- 版本：**V1.7（2026-10-31，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP；V1.6 变更=新增 SP-F-909 桌面 GUI 条目写路径（S1b-1：创建/编辑/删除 + 显示/放大显示交互）；V1.7 变更=新增 SP-F-108 标签分类（KDBX4 原生 Tags 全栈：CLI+GUI，S1b-2）；V1.8 变更=新增 SP-F-910 桌面 GUI 附件管理 + SP-F-909 扩展自定义字段编辑 UI（S1b-2b））**
 - 开发模型：瀑布（三轮审核：完整性→一致性→可执行性，记录见 `docs/reviews/srs_review.md`）
 - 需求来源：《docs/research/自研需求基线_SuperPasswdKey.md》（B1–B22）、决策记录 DR-001~005、2 天冲刺计划两轮复审修正
 - 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-F-8xx` Android（V1.2 新增）｜`SP-F-9xx` 桌面 Windows（V1.3 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
@@ -256,9 +256,13 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 描述：解锁后主窗提供条目列表（标题/用户名/URL/TOTP 标记，经 sp-kffi list_entry_summaries）+ 即时搜索（客户端过滤）+ 详情只读视图（find_entry 含密码瞬态展示、TOTP 动态码 30s 轮询、复制按钮经 Rust clip_copy=arboard+30s 超时清空，对齐 CLI clip 语义）；所有机密操作经 Session 惰性超时检查（过期即锁库，SP-F-903 口径）；机密不进前端存储（SP-F-707 口径）；MVP 不含写路径（条目 CRUD/附件/TOTP 编辑在 S1b）。
 - 验收：真实库解锁→列表→搜索→详情→TOTP 复制全链路；锁定态请求返回 locked 语义；组件测试（vitest）+ session 测试回归全绿；CI 七 job 全绿。
 
-**SP-F-909 桌面 GUI 条目写路径（P1，S1b-1，confirmed）**
-- 描述：GUI 内条目全生命周期——创建（"新的项目"表单）、编辑（详情页编辑表单，标题可改；旧快照自动进 history，SP-F-103 语义经 sp-kdbx edit_entry 单源）、删除（确认对话框）；表单校验对齐 CLI 语义（标题必填；otp 必须 otpauth:// 开头；同名允许，靠列表/搜索区分）；详情交互增强对标 1Password：密码行下拉（显示=掩码↔明文切换、放大显示=全屏大字号模态、复制）；自定义字段完整读回并保真回传（sp-kffi Rust-only 面 find_entry_full，不经 UniFFI 导出、Kotlin 绑定零漂移；S1b-1 不提供编辑 UI）；写入后经 save_session 零凭据保存（DR-012 A1 同源）；机密不进前端存储（SP-F-707 口径）。
+**SP-F-909 桌面 GUI 条目写路径（P1，S1b-1，confirmed；S1b-2b 扩展自定义字段编辑 UI）**
+- 描述：GUI 内条目全生命周期——创建（"新的项目"表单）、编辑（详情页编辑表单，标题可改；旧快照自动进 history，SP-F-103 语义经 sp-kdbx edit_entry 单源）、删除（确认对话框）；表单校验对齐 CLI 语义（标题必填；otp 必须 otpauth:// 开头；同名允许，靠列表/搜索区分；S1b-2b 起自定义字段名称非空且非 KDBX 保留名，与 sp-core 同源）；详情交互增强对标 1Password：密码行下拉（显示=掩码↔明文切换、放大显示=全屏大字号模态、复制）；自定义字段完整读回并保真回传（sp-kffi Rust-only 面 find_entry_full，不经 UniFFI 导出、Kotlin 绑定零漂移）；S1b-2b 起表单提供自定义字段增删改行（v0.1 存储不支持 protected 标记持久化——DR-005，保护标记恒为 false 如实披露）；写入后经 save_session 零凭据保存（DR-012 A1 同源）；机密不进前端存储（SP-F-707 口径）。
 - 验收：GUI 完成一条真实条目的创建→编辑（含改名/改密）→显示/放大显示→删除全生命周期；custom_fields 编辑后不丢（自动化断言）；双超时/锁定语义不回归；组件测试 + Rust session 测试全绿；CI 全绿。
+
+**SP-F-910 桌面 GUI 附件管理（P1，S1b-2b，confirmed）**
+- 描述：详情页附件区——列表（sp-kffi Rust-only 面 list_attachments，语义=sp_kdbx::list_attachments 单源）、添加（文件选择器读字节经 Rust add_attachment 同名覆盖，对齐 CLI sp attachment add 语义，save_session 零凭据保存）、下载（Rust 侧系统保存对话框 tauri-plugin-dialog → 落盘 + 限权收敛复用 sp-core::fsperms 单源——与 CLI attachment_get 同语义 icacls/0600）；锁定态拒绝；机密不进前端存储（附件字节经 invoke 瞬态传递，不落前端持久层）。
+- 验收：kffi e2e（list/add/get roundtrip + 同名覆盖）+ desktop session 测试（roundtrip/覆盖/锁定拒绝）+ vitest（附件渲染/下载调用）；下载文件 `icacls` 核对仅当前用户可读（手工项）。
 
 ## 4. 非功能需求（SP-N，全部绑定测量方法）
 
