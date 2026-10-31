@@ -496,6 +496,13 @@ pub fn run(
         Some(p) => parse_env_file(p)?,
         None => Vec::new(),
     };
+    // sp:// 引用格式校验前置（2026-10-31 验收反馈）：坏引用在解锁（KDF）之前报
+    // 参数错误；条目存在性仍需查库，解锁后报未找到
+    for (_, value) in entries.iter() {
+        if let Some(uri) = value.strip_prefix("sp://") {
+            commands::parse_uri_public(uri)?;
+        }
+    }
     let db = unlock_db(cli_db, cli_keyfile)?;
 
     let mut env_map: Vec<(String, Zeroizing<String>)> = Vec::new();
