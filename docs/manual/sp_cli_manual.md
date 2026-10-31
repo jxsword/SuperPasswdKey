@@ -207,7 +207,7 @@ sp item create github -u alice --url https://github.com
 ```
 
 - **用途**：建一条可用于浏览器填充的 github 登录条目。
-- **注意事项**：① 命令先提示 `Enter password to unlock <库>: `（主密码，写操作需解锁）；② 随后提示 `Entry password (empty to skip): `——**条目密码只能交互输入**（没有 `-p` 参数），留空则该条目不存密码；③ **同名标题不会报错**：会生成重复条目，且旧条目被同名遮蔽（`get/read/clip` 只命中首个）——建前建议 `sp item list` 查重。
+- **注意事项**：① 命令先提示 `Enter password to unlock <库>: `（主密码，写操作需解锁）；② 随后提示 `Entry password (empty to skip): `——**条目密码只能交互输入**（没有 `-p` 参数），留空则该条目不存密码；③ **同名标题不会报错**：会生成重复条目，且旧条目被同名遮蔽（`get/read/clip` 只命中首个）——建前建议 `sp item list` 查重；④ **参数校验在解锁之前**：标题空/`--totp` 非 otpauth:// 开头/自定义字段保留名等坏参数**不提示主密码**直接报参数错误退出 4（2026-10-31 起）。
 - **关联命令**：`sp item list`（查重）→ `sp item create` → `sp item get github -a Password` / `sp clip github/Password`（取用）→ `sp item delete github`（删除）。
 
 **示例 2：全字段条目（自定义字段 + TOTP）**

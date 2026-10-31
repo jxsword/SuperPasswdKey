@@ -1,7 +1,8 @@
-# 验收测试清单（GUI + CLI）— v1.0（2026-10-31）
+# 验收测试清单（GUI + CLI）— v1.1（2026-10-31）
 
-> 用途：**逐项执行**的验收清单，覆盖 S1a/S1b 全部用户可见功能（SP-F-901/902/903/904/905/908/909/910/601/108）。
+> 用途：**逐项执行**的验收清单，覆盖 S1a/S1b 全部用户可见功能（SP-F-901/902/903/904/905/908/909/910/601/108）与 F8 注入（SP-F-301/3xx）。
 > 用法：按序执行，在每行"实际结果"列填 ✅/❌；❌ 请附截图与复现步骤。命令与预期输出以 `sp_cli_manual.md` 为详注；若程序输出与手册不一致，以程序输出为准并如实记录。
+> **Shell 口径（v1.1 修订）**：全部命令为 **PowerShell** 语法，路径变量统一 `$SP` / `$TESTDB` / `$VDB`（cmd 的 `%VAR%` 写法不再使用；A10 中子进程 `cmd /c echo %GH_TOKEN%` 的 `%` 属 cmd 变量展开，非本清单变量）。每节开头的变量赋值执行一次即可。
 > 上游：design_docs/16 §8（启动指引与协作原理图）、S1a/S1b 交付说明（docs/plans/）。
 
 ---
@@ -10,7 +11,7 @@
 
 ### 0.1 ⚠️ 必须重建（旧版不含本轮功能）
 
-PATH 中的 `sp.exe`（`E:\rust\cargo\bin`）与已安装的桌面版均为 **v0.3.0**，**不含 `--tag` 与 GUI 写路径（创建/编辑/删除/附件/放大显示等）**。测试前必须重建：
+PATH 中的 `sp.exe`（`E:\rust\cargo\bin`）与已安装的桌面版均为 **v0.3.0**，**不含 `--tag`、参数前置校验与 GUI 写路径（创建/编辑/删除/附件/放大显示等）**。测试前必须重建：
 
 ```powershell
 # 仓库根目录执行
@@ -19,9 +20,15 @@ cd desktop/src-tauri
 cargo tauri build                          # GUI：产出 target\release\sp-desktop.exe + NSIS 安装包
 ```
 
-本轮 CLI 测试**统一用全路径**调用新构建的 `target\release\sp.exe`（下文记作 `%SP%`）——这同时规避了同名撞车问题（见 0.3）。
+### 0.2 变量准备（复制后续命令前先执行）
 
-### 0.2 GUI 程序位置与启动方式
+```powershell
+$SP     = "E:\proj\SuperPasswdKey\target\release\sp.exe"   # 新构建的 CLI（全路径，规避同名撞车）
+$TESTDB = "C:\vault\sp-test.kdbx"                          # CLI 测试库（与主库隔离）
+$VDB    = "$env:APPDATA\SuperPasswdKey\vault.kdbx"         # GUI 主库（GUI 锁定单库，无法换库）
+```
+
+### 0.3 GUI 程序位置与启动方式
 
 | 方式 | 位置 / 命令 | 说明 |
 |---|---|---|
@@ -31,117 +38,118 @@ cargo tauri build                          # GUI：产出 target\release\sp-desk
 | 开机自启 | GUI 顶栏"设置"→ 勾选 | 写 HKCU Run（免管理员） |
 | NM 实例 | 不手动启动 | 浏览器扩展 connectNative 经 manifest 拉起，随断开自动退出 |
 
-### 0.3 同名撞车核对（sp.exe）
+### 0.4 同名撞车核对（sp.exe）
 
 第三方程序可能与本 CLI 同名（已知案例：**win-pyvideotrans v4.17 项目的 GUI 应用亦为 sp.exe**）。开始前先核对：
 
 ```powershell
-where.exe sp          # 列出 PATH 中全部同名命中（按优先级排序）
-sp --version          # 确认实际命中的是谁
+where.exe sp     # 列出 PATH 中全部同名命中（按优先级排序）
+& $SP --version  # 新构建 CLI 的版本号
 ```
 
-若命中了第三方程序：本轮用 `%SP%` 全路径即可；长期处置见 CLI 手册 §1（PATH 调序，推荐 `scripts/add-path.ps1`）。
+本轮命令统一用 `& $SP` 全路径调用（不受 PATH 顺序影响）；长期处置见 CLI 手册 §1（PATH 调序，推荐 `scripts/add-path.ps1`）。
 
-### 0.4 测试库隔离与备份
+### 0.5 测试库隔离与备份
 
-- **CLI 部分**：用独立测试库，不碰主库——`--db C:\vault\sp-test.kdbx`（下文记作 `%TESTDB%`）。
-- **GUI 部分**：桌面 GUI 锁定单库 `%APPDATA%\SuperPasswdKey\vault.kdbx`，无法换库——**测试前先备份**：
+- **CLI 部分**：独立测试库 `$TESTDB`（`--db` 指定），不碰主库。
+- **GUI 部分**：桌面 GUI 锁定单库 `$VDB`——**测试前先备份**：
 
 ```powershell
-copy "$env:APPDATA\SuperPasswdKey\vault.kdbx" "$env:APPDATA\SuperPasswdKey\vault.kdbx.bak-acceptance"
+Copy-Item $VDB "$VDB.bak-acceptance"
 ```
 
 （测试完成后可用备份还原；注意备份的是 KDBX 文件本身，keyfile 如有也需一并备份。）
 
-### 0.5 剪贴板验证环境
+### 0.6 剪贴板验证环境
 
-准备一个可粘贴的记事本/输入框，用于 D 组（复制）与 CLI clip 的验证。
+准备一个可粘贴的记事本/输入框，用于 B5 组（复制）与 CLI clip 的验证。
 
 ---
 
 ## A. CLI 逐项清单
 
-> 通用约定：`%SP%` = 新构建的 `target\release\sp.exe` 全路径；`%TESTDB%` = `C:\vault\sp-test.kdbx`；
-> 交互提示（`Enter password to unlock ...`、`Entry password (empty to skip):`）走 stderr，stdout 是干净数据通道；
-> 测试主密码建议用一次性口令（如 `sp-acceptance-only`），不入任何真实库。
+> 通用约定：交互提示（`Enter password to unlock ...`、`Entry password (empty to skip):`）走 stderr，stdout 是干净数据通道；
+> 测试主密码建议用一次性口令（如 `sp-acceptance-only`），不入任何真实库；条目密码同理用一次性测试值。
 
 ### A0. 环境
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
 | A0.1 | `where.exe sp` | 列出 PATH 中全部同名命中（含本 CLI 与/或第三方 sp.exe，按优先级排序） | 手册 §1 撞名注记 | |
-| A0.2 | `%SP% --version` | 输出版本号（应为当前构建版本） | — | |
+| A0.2 | `& $SP --version` | 输出版本号（应为当前构建版本） | — | |
 
 ### A1. init（手册 §3）
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
-| A1.1 | `%SP% init --db %TESTDB%`（交互） | 依次提示 `Choose a master password:` → `Confirm master password:`（两次输入不一致会要求重输）；成功后打印 `REMINDER: back up the keyfile to a separate medium (USB/another device).` 与 `KDF: Argon2id m=… t=… p=…`（校准参数） | SP-F-101 | |
-| A1.2 | 检查 `%TESTDB%` 同目录 | 生成 `sp-test.keyfile`（init 自动建双因子） | SP-F-101 | |
+| A1.1 | `& $SP init --db $TESTDB`（交互） | 依次提示 `Choose a master password:` → `Confirm master password:`（两次输入不一致会要求重输）；成功后打印 `REMINDER: back up the keyfile to a separate medium (USB/another device).` 与 `KDF: Argon2id m=… t=… p=…`（校准参数） | SP-F-101 | |
+| A1.2 | 检查 `$TESTDB` 同目录 | 生成 `sp-test.keyfile`（init 自动建双因子） | SP-F-101 | |
 | A1.3 | 再次执行同命令 | 报错退出码 **4**（目标库已存在） | 手册 §3 注 | |
 
 ### A2. item create（手册 §4.1）
 
 > 以下均需先按提示输入测试主密码解锁，再按提示输入条目密码（可留空）。
+> **参数校验在解锁之前**（v1.1）：A2.3/A2.4 这类坏参数**不提示主密码、不进 KDF** 直接退出 4。
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
-| A2.1 | `%SP% item create --db %TESTDB% github -u alice --url https://github.com` | 成功打印 `Created entry 'github'`（解锁提示 → 条目密码提示可留空） | SP-F-102 | |
-| A2.2 | `... item create --db %TESTDB% work-vpn -u bob --totp "otpauth://totp/Test?secret=JBSWY3DPEHPK3PXP&issuer=Test" --tag work --tag infra` | 成功；单条目携带两个标签 | SP-F-102/108 | |
-| A2.3 | `... item create --db %TESTDB% bad-otp --totp "not-otpauth"` | 报参数错误，退出码 **4** | SP-F-102（校验） | |
-| A2.4 | `... item create --db %TESTDB% reserved --field "Password=x"` | 报参数错误（保留名），退出码 **4** | SP-F-102（校验） | |
-| A2.5 | `... item create --db %TESTDB% github -u alice2`（与 A2.1 同名） | **不报错**（同名允许）；此后 get/read/clip 只命中首个（遮蔽语义）——测试结束记得 delete 清理 | 手册 §4.1 注 | |
-| A2.6 | `... item create --db %TESTDB% files -u f1`（后续附件测试用） | 成功 | SP-F-104 | |
+| A2.1 | `& $SP item create --db $TESTDB github -u alice --url https://github.com` | 成功打印 `Created entry 'github'`（解锁提示 → 条目密码提示可留空） | SP-F-102 | |
+| A2.2 | `& $SP item create --db $TESTDB work-vpn -u bob --totp "otpauth://totp/Test?secret=JBSWY3DPEHPK3PXP&issuer=Test" --tag work --tag infra` | 成功；单条目携带两个标签 | SP-F-102/108 | |
+| A2.3 | `& $SP item create --db $TESTDB bad-otp --totp "not-otpauth"` | **不提示主密码**（无 `Enter password to unlock`），直接报 `sp: invalid parameter: otp must be an otpauth:// URL (KeePassXC compatible, DR-005)`，退出码 **4** | SP-F-102（校验前置） | |
+| A2.4 | `& $SP item create --db $TESTDB reserved --field "Password=x"` | **不提示主密码**，直接报 `sp: invalid parameter: custom field name 'Password' is reserved`，退出码 **4** | SP-F-102（校验前置） | |
+| A2.5 | `& $SP item create --db $TESTDB github -u alice2`（与 A2.1 同名） | **不报错**（同名允许）；此后 get/read/clip 只命中首个（遮蔽语义，多同名条目的寻址现状见手册 §14 边界）——测试结束记得 delete 清理 | 手册 §4.1 注 | |
+| A2.6 | `& $SP item create --db $TESTDB files -u f1`（后续附件测试用） | 成功 | SP-F-104 | |
 
 ### A3. item list（手册 §4.3）
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
-| A3.1 | `%SP% item list --db %TESTDB%` | 逐行输出标题、**排序后**（bad-otp / files / github / reserved / work-vpn），不含其他字段 | SP-F-102 | |
-| A3.2 | `... item list --db %TESTDB% --tag work` | 仅 `work-vpn`（精确匹配、大小写不敏感） | SP-F-108 | |
-| A3.3 | `... item list --db %TESTDB% --tag WORK` | 同 A3.2（大小写不敏感验证） | SP-F-108 | |
-| A3.4 | `... item list --db %TESTDB% --tag no-such-tag` | **空输出**、退出码 0 | SP-F-108 | |
+| A3.1 | `& $SP item list --db $TESTDB` | 逐行输出标题、**排序后**（bad-otp / files / github / reserved / work-vpn），不含其他字段 | SP-F-102 | |
+| A3.2 | `& $SP item list --db $TESTDB --tag work` | 仅 `work-vpn`（精确匹配、大小写不敏感） | SP-F-108 | |
+| A3.3 | `& $SP item list --db $TESTDB --tag WORK` | 同 A3.2（大小写不敏感验证） | SP-F-108 | |
+| A3.4 | `& $SP item list --db $TESTDB --tag no-such-tag` | **空输出**、退出码 0 | SP-F-108 | |
 
 ### A4. item get（手册 §4.2）
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
-| A4.1 | `%SP% item get --db %TESTDB% work-vpn` | 逐行 `Title: work-vpn` / `UserName: bob` / `Password: …` / `URL: …` / **`Tags: infra, work`**（有标签才打此行）——注意密码明文整行打印，勿入日志 | SP-F-102/108 | |
-| A4.2 | `... item get --db %TESTDB% github -a Password` | 仅输出该条目密码明文（单字段） | SP-F-102 | |
-| A4.3 | `... item get --db %TESTDB% work-vpn -t` | 输出 6 位 TOTP 动态码（每 30s 变化；记下当前值，GUI 部分 B4.2 要比对） | SP-F-601 | |
-| A4.4 | `... item get --db %TESTDB% no-such` | 报未找到，退出码 **3** | 手册 §13 | |
+| A4.1 | `& $SP item get --db $TESTDB work-vpn` | 逐行 `Title: work-vpn` / `UserName: bob` / `Password: …` / `URL: …` / **`Tags: infra, work`**（有标签才打此行）——注意密码明文整行打印，勿入日志 | SP-F-102/108 | |
+| A4.2 | `& $SP item get --db $TESTDB github -a Password` | 仅输出该条目密码明文（单字段） | SP-F-102 | |
+| A4.3 | `& $SP item get --db $TESTDB work-vpn -t` | 输出 6 位 TOTP 动态码（每 30s 变化；记下当前值，GUI 部分 B6.2 要比对） | SP-F-601 | |
+| A4.4 | `& $SP item get --db $TESTDB no-such` | 报未找到，退出码 **3** | 手册 §13 | |
 
 ### A5. clip（手册 §7）
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
-| A5.1 | `%SP% clip --db %TESTDB% github/Password` | 打印 `Copied to clipboard; clearing in 30s (Win+V history is NOT controlled by sp).`；**阻塞约 30s**；立即粘贴验证值正确；30s 后粘贴为空 | SP-F-102（clip 语义） | |
-| A5.2 | `... clip --db %TESTDB% github/Password --timeout 5` | 文案显示 `clearing in 5s`，5s 后清空（覆盖默认） | 手册 §7 | |
+| A5.1 | `& $SP clip --db $TESTDB github/Password` | 打印 `Copied to clipboard; clearing in 30s (Win+V history is NOT controlled by sp).`；**阻塞约 30s**；立即粘贴验证值正确；30s 后粘贴为空 | SP-F-102（clip 语义） | |
+| A5.2 | `& $SP clip --db $TESTDB github/Password --timeout 5` | 文案显示 `clearing in 5s`，5s 后清空（覆盖默认） | 手册 §7 | |
 
 ### A6. attachment（手册 §5）
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
-| A6.1 | 准备本地文件 `C:\vault\att-src.txt`（内容随意）并记录其 SHA256：`Get-FileHash ... -Algorithm SHA256` | — | — | |
-| A6.2 | `%SP% attachment add --db %TESTDB% files C:\vault\att-src.txt --name att-test.txt` | 成功（同名覆盖不提示） | SP-F-104 | |
-| A6.3 | `... attachment list --db %TESTDB% files` | 逐行输出 `att-test.txt`（排序） | SP-F-104 | |
-| A6.4 | `... attachment get --db %TESTDB% files att-test.txt --out C:\vault\att-out.txt` | stderr 提示写入路径与字节数；`Get-FileHash` 与 A6.1 **哈希一致**（字节往返无损） | SP-F-104 | |
-| A6.5 | 限权核对：`icacls C:\vault\att-out.txt` | 仅显示当前用户 `(<机器名>\<用户>):F`，**无继承的SYSTEM/Administrators/Everyone 等条目**（/inheritance:r 生效） | SP-F-104（限权） | |
-| A6.6 | `... attachment get --db %TESTDB% files no-such` | 报未找到，退出码 **3** | 手册 §13 | |
+| A6.1 | 准备附件源文件并记录哈希：`"att test line" | Out-File C:\vault\att-src.txt`，然后 `Get-FileHash C:\vault\att-src.txt -Algorithm SHA256` | 记下**附件源文件**的哈希（A6.4 的比对对象是它，不是 sp.exe） | — | |
+| A6.2 | `& $SP attachment add --db $TESTDB files C:\vault\att-src.txt --name att-test.txt` | 成功（同名覆盖不提示） | SP-F-104 | |
+| A6.3 | `& $SP attachment list --db $TESTDB files` | 逐行输出 `att-test.txt`（排序） | SP-F-104 | |
+| A6.4 | `& $SP attachment get --db $TESTDB files att-test.txt --out C:\vault\att-out.txt`，然后 `Get-FileHash C:\vault\att-out.txt -Algorithm SHA256` | stderr 提示写入路径与字节数；下载文件哈希与 A6.1 **一致**（字节往返无损） | SP-F-104 | |
+| A6.5 | 限权核对：`icacls C:\vault\att-out.txt` | 仅显示当前用户 `(<机器名>\<用户>):F`，**无继承的 SYSTEM/Administrators/Everyone 等条目**（/inheritance:r 生效） | SP-F-104（限权） | |
+| A6.6 | `& $SP attachment get --db $TESTDB files no-such` | 报未找到，退出码 **3** | 手册 §13 | |
 
 ### A7. read（手册 §6）
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
-| A7.1 | PowerShell：`$v = %SP% read --db %TESTDB% github/Password -n; $v.Length` | 取到密码明文（`-n` 去尾换行），stdout 干净可管道 | SP-F-102 | |
-| A7.2 | `... read --db %TESTDB% github/Password --out-file C:\vault\read-out.txt` | 写文件、无终端输出；文件内容为密码值（icacls 限权同 A6.5） | 手册 §6 | |
+| A7.1 | PowerShell：`$v = & $SP read --db $TESTDB github/Password -n; $v.Length` | 取到密码明文（`-n` 去尾换行），stdout 干净可管道 | SP-F-102 | |
+| A7.2 | `& $SP read --db $TESTDB github/Password --out-file C:\vault\read-out.txt` | 写文件、无终端输出；文件内容为密码值（icacls 限权同 A6.5） | 手册 §6 | |
+| A7.3 | `& $SP read --db $TESTDB malformed-no-slash` | **不提示主密码**，直接报参数错误（URI 须 `<标题>/<字段>`），退出码 **4**（校验前置，v1.1） | 手册 §6/§13 | |
 
 ### A8. 删除与错误语义
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
-| A8.1 | `%SP% item delete --db %TESTDB% reserved` | 打印 `Deleted entry 'reserved'` | SP-F-102 | |
-| A8.2 | `... item get --db %TESTDB% reserved` | 退出码 **3**（已删） | 手册 §13 | |
+| A8.1 | `& $SP item delete --db $TESTDB reserved` | 打印 `Deleted entry 'reserved'` | SP-F-102 | |
+| A8.2 | `& $SP item get --db $TESTDB reserved` | 退出码 **3**（已删） | 手册 §13 | |
 | A8.3 | 任意命令输入**错误主密码** | 报凭据错误，退出码 **2**（不细分错密码/错 keyfile，防侧信道） | SP-F-105 | |
 | A8.4 | 注：`sp item create`（缺位置参数）等 **clap 解析错误也是退出码 2**——与凭据错误同码，靠 stderr 文本区分（手册 §13 注） | — | 手册 §13 注 | |
 
@@ -149,24 +157,64 @@ copy "$env:APPDATA\SuperPasswdKey\vault.kdbx" "$env:APPDATA\SuperPasswdKey\vault
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
-| A9.1 | `sp run --env-file`（见手册 §8 示例：env 文件值用 `sp://title/field` 引用） | 子进程拿到注入变量；子进程 stdout 中出现的机密值被替换为 `<redacted>`；子进程退出码原样透传 | SP-F-3xx | |
-| A9.2 | `sp import --dry-run dotenv <PATH>`（手册 §10） | 打印 `Scan: N findings -> M unique candidates ...` 与 `REVIEW [L3 conflict]` 行；**零写入** | SP-F-401 | |
-| A9.3 | `sp export --out C:\vault\backup.zip.age`（手册 §11） | 提示 `Archive passphrase:` 两次；产出 age 加密 zip | SP-F-501 | |
+| A9.1 | `& $SP import --dry-run dotenv <PATH>`（手册 §10） | 打印 `Scan: N findings -> M unique candidates ...` 与 `REVIEW [L3 conflict]` 行；**零写入** | SP-F-401 | |
+| A9.2 | `& $SP export --out C:\vault\backup.zip.age`（手册 §11） | 提示 `Archive passphrase:` 两次；产出 age 加密 zip | SP-F-501 | |
+| A9.3 | 环境变量注入（F8） | **完整用例独立成节，见 A10** | SP-F-301/3xx | |
+
+### A10. 环境变量注入（F8，`sp run` 完整用例，手册 §8）
+
+> 语义要点：env 文件为 `.env` 格式（`#` 注释、支持引号/跨行/变量展开）；值写 `sp://标题/字段` 引用库内秘密（**明文不落盘，只落"引用"**）；子进程 stdout/stderr 中的秘密值默认打码为 `<redacted>`；子进程**退出码原样透传**；保护变量名（PATH、XDG_*、LC_* 等，SP-F-301）拒绝注入并警告。
+> 前置：A2.1 已建 `github` 条目（条目密码 = 你创建时输入的测试值，下文记作 `<github密码>`）。
+
+**准备引用文件（秘密不落盘，只落引用）**：
+
+```powershell
+# 文件 1：正常引用 + 非引用明文 + 保护变量（应被跳过）
+@'
+# SuperPasswdKey inject test (values are sp:// references, not secrets)
+GH_TOKEN=sp://github/Password
+PLAIN_VALUE=plain-not-secret
+PATH=sp://github/Password
+'@ | Out-File C:\vault\app-good.env -Encoding utf8
+
+# 文件 2：坏引用（缺字段段）
+@'
+BAD_URI=sp://malformed
+'@ | Out-File C:\vault\app-bad-uri.env -Encoding utf8
+
+# 文件 3：不存在的条目
+@'
+X=sp://no-such/Password
+'@ | Out-File C:\vault\app-missing.env -Encoding utf8
+```
+
+| # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
+|---|---|---|---|---|
+| A10.1 | `& $SP run --db $TESTDB --env-file C:\vault\app-good.env -- cmd /c echo %GH_TOKEN%` | 解锁一次后子进程执行；stdout 输出 **`<redacted>`**（子进程 echo 出的机密值被打码；此处的 `%GH_TOKEN%` 是 **cmd 变量展开**，非 PowerShell 变量） | SP-F-301/3xx | |
+| A10.2 | `& $SP run --db $TESTDB --env-file C:\vault\app-good.env -- cmd /c echo %PLAIN_VALUE%` | 输出 `plain-not-secret`（非引用值原样透传，不打码） | SP-F-3xx | |
+| A10.3 | `& $SP run --db $TESTDB --no-masking --env-file C:\vault\app-good.env -- cmd /c echo %GH_TOKEN%` | 输出**真实条目密码**（与 `& $SP item get --db $TESTDB github -a Password` 一致；`--no-masking` 仅调试用，验证后勿在敏感终端留存历史） | SP-F-3xx（值正确性） | |
+| A10.4 | 观察 A10.1 的 stderr | 出现 `sp: refusing to set protected variable 'PATH' (SP-F-301)`——PATH 被拒绝注入，其余变量照常（GH_TOKEN 仍正常打码输出） | SP-F-301 | |
+| A10.5 | 退出码透传：`& $SP run --db $TESTDB --env-file C:\vault\app-good.env -- cmd /c exit 7`，然后执行 `$LASTEXITCODE` | 子进程退出码原样透传：`7` | 手册 §8 | |
+| A10.6 | `& $SP run --db $TESTDB --env-file C:\vault\app-bad-uri.env -- cmd /c echo x` | **不提示主密码**，直接报参数错误（`uri 'malformed' must be <title>/<field>`），退出码 **4**（URI 解析前置，v1.1） | 手册 §8/§13 | |
+| A10.7 | `& $SP run --db $TESTDB --env-file C:\vault\app-missing.env -- cmd /c echo x` | 解锁后报未找到（引用的条目不存在），退出码 **3** | 手册 §8/§13 | |
+| A10.8 | （可选，POSIX 语义）`--stdin` 模式：手册 §8 示例 2——秘密经子进程 stdin 的 NUL 分隔记录传入（避免环境变量暴露面）。Windows 下子进程需配合读取，以实际行为为准，不做硬性断言 | — | 手册 §8 | |
+
+> 注：`inject`（F8 模板渲染，`sp inject -i <模板> -o <输出>`）与 `run` 共享 `sp://` 引用与解锁路径，完整语义见手册 §9，不重复列用例。
 
 ---
 
 ## B. GUI 逐项清单
 
-> 对象：本轮新构建的 `sp-desktop.exe`（托盘实例）；主库 `%APPDATA%\SuperPasswdKey\vault.kdbx`（已按 0.4 备份）。
-> 建议先按 B1 准备主库条目（若主库已有真实条目可跳过建库、直接用现有条目测 C–E 组）。
+> 对象：本轮新构建的 `sp-desktop.exe`（托盘实例）；主库 `$VDB`（已按 0.5 备份）。
+> 建议先按 B1 准备主库条目（若主库已有真实条目可跳过建库、直接用现有条目测 B4–B6）。
 
 ### B1. 库准备（CLI 完成，GUI 消费）
 
 | # | 操作 | 预期结果 | 实际结果 |
 |---|---|---|---|
-| B1.1 | `%SP% init --db "%APPDATA%\SuperPasswdKey\vault.kdbx"`（已有库则跳过；**注意此路径即 GUI 单库**，已备份） | 建库成功（或已存在则跳过） | |
-| B1.2 | `%SP% item create --db "%APPDATA%\SuperPasswdKey\vault.kdbx" gui-github -u alice --url https://github.com --tag dev` | 成功（GUI 解锁后应可见） | |
-| B1.3 | `... item create --db "%APPDATA%\SuperPasswdKey\vault.kdbx" gui-vpn -u bob --totp "otpauth://totp/Test?secret=JBSWY3DPEHPK3PXP&issuer=Test" --tag work --field "region=cn"` | 成功（带 TOTP + 标签 + 自定义字段，测 GUI 全字段展示） | |
+| B1.1 | `& $SP init --db $VDB`（已有库则跳过；**注意此路径即 GUI 单库**，已备份） | 建库成功（或已存在则跳过） | |
+| B1.2 | `& $SP item create --db $VDB gui-github -u alice --url https://github.com --tag dev` | 成功（GUI 解锁后应可见） | |
+| B1.3 | `& $SP item create --db $VDB gui-vpn -u bob --totp "otpauth://totp/Test?secret=JBSWY3DPEHPK3PXP&issuer=Test" --tag work --field "region=cn"` | 成功（带 TOTP + 标签 + 自定义字段，测 GUI 全字段展示） | |
 
 ### B2. 启动与托盘（SP-F-901）
 
@@ -175,13 +223,15 @@ copy "$env:APPDATA\SuperPasswdKey\vault.kdbx" "$env:APPDATA\SuperPasswdKey\vault
 | B2.1 | 双击 `sp-desktop.exe` | 主窗弹出（解锁面板：主密码 + keyfile 输入框），托盘图标出现 | |
 | B2.2 | 点主窗 ✕ 关闭 → 托盘左键单击 | 窗口隐藏、进程保留（任务管理器可见 sp-desktop.exe）；托盘单击重新唤出 | |
 
-### B3. 解锁 / 锁定（SP-F-902/903）
+### B3. 解锁 / 锁定 / keyfile 记忆（SP-F-902/903/904）
 
 | # | 操作 | 预期结果 | 实际结果 |
 |---|---|---|---|
 | B3.1 | 输入**错误**主密码点"解锁" | 提示"解锁失败：主密码或 keyfile 不正确"，保持锁定态 | |
 | B3.2 | 输入正确主密码 | 约 1–3s（KDF）后进入主界面；顶栏显示"已解锁 · 空闲 Xm · 绝对 Xmin"倒计时递减 | |
 | B3.3 | 顶栏"锁定" | 立即切回解锁面板；再进需重新解锁（列表/详情内存态丢弃） | |
+| B3.4 | **keyfile 路径记忆**（需库带 keyfile）：在 keyfile 输入框手输路径解锁成功一次 → 关闭应用重新启动 | keyfile 输入框**已预填**上次成功解锁使用的路径（settings.json 的 keyfile_path 字段；该文件不存在时启动后为空、需重新手输——记忆的配置本身保留，文件恢复即复用） | SP-F-904 |
+| B3.5 | **keyfile 文件浏览**：点 keyfile 输入框旁"浏览…" | 弹系统文件选择对话框；选定文件后路径填入输入框；**取消**则不改动 | SP-F-904 |
 
 ### B4. 浏览：列表 / 搜索 / 标签（SP-F-908/108）
 
@@ -208,7 +258,7 @@ copy "$env:APPDATA\SuperPasswdKey\vault.kdbx" "$env:APPDATA\SuperPasswdKey\vault
 | # | 操作 | 预期结果 | 实际结果 |
 |---|---|---|---|
 | B6.1 | 打开 gui-vpn 详情观察 TOTP 行 | 显示 6 位数字码；**等待约 30s 自动刷新**为新码（无需手动操作） | |
-| B6.2 | 复制 TOTP 粘贴，与 CLI 比对：`%SP% item get --db "%APPDATA%\SuperPasswdKey\vault.kdbx" gui-vpn -t` | 两者**同码**（30s 窗口内） | |
+| B6.2 | 复制 TOTP 粘贴，与 CLI 比对：`& $SP item get --db $VDB gui-vpn -t` | 两者**同码**（30s 窗口内） | |
 
 ### B7. 创建（SP-F-909）
 
@@ -217,18 +267,19 @@ copy "$env:APPDATA\SuperPasswdKey\vault.kdbx" "$env:APPDATA\SuperPasswdKey\vault
 | B7.1 | 左栏"＋ 新的项目" → 直接点"保存" | 表单错误"标题必填"，未提交 | |
 | B7.2 | 填标题，TOTP 填 `not-otpauth` → 保存 | 错误"TOTP 链接必须以 otpauth:// 开头"（对齐 CLI 退出码 4 语义） | |
 | B7.3 | 自定义字段"添加字段" → 名称填 `Password` → 保存 | 错误"保留名"（与 CLI/sp-core 同源校验） | |
-| B7.4 | 修正：标题 `gui-created`、用户名/URL/备注、**标签填 ` temp，测试 , 中文逗号尾空格,`**、自定义字段 `api_key=k-1` → 保存 | 成功；表单关闭；列表刷新并选中 gui-created；详情可见标签 `temp` `测试` `中文逗号尾空格`（**中英文逗号均解析、自动 trim、空段剔除**）与自定义字段 api_key | SP-F-909/108 |
-| B7.5 | CLI 侧核对：`%SP% item get --db "%APPDATA%\SuperPasswdKey\vault.kdbx" gui-created` | CLI 读回与 GUI 所填一致（含 `Tags:` 行与 api_key） | 互操作 | 
+| B7.4 | 修正：标题 `gui-created`、用户名/URL/备注、**标签填 ` temp，测试 , 中文逗号尾空格,`**、自定义字段 `api_key=k-1` → 保存 | 成功；表单关闭；**列表与详情立即更新**并选中 gui-created；详情可见标签 `temp` `测试` `中文逗号尾空格`（**中英文逗号均解析、自动 trim、空段剔除**）与自定义字段 api_key | SP-F-909/108 |
+| B7.5 | CLI 侧核对：`& $SP item get --db $VDB gui-created` | CLI 读回与 GUI 所填一致（含 `Tags:` 行与 api_key） | 互操作 |
 
 ### B8. 编辑（SP-F-909/103）
 
 | # | 操作 | 预期结果 | 实际结果 |
 |---|---|---|---|
 | B8.1 | gui-created 详情点"编辑" | 表单预填全部字段（含标签回填为逗号串、自定义字段行预填） | |
-| B8.2 | 改标题为 `gui-created-2`、改密码、**自定义字段 api_key 值改为 k-2**、再"添加字段"一行 `env=prod` → 保存 | 成功；列表选中态跟到新标题；详情显示新密码掩码、api_key=k-2、env=prod | |
-| B8.3 | 自定义字段行 ✕ 删除 `env` 行 → 保存 | 保存后详情不再显示 env | |
-| B8.4 | CLI 核对：`... item get gui-created-2` | 新标题可读（旧名 get 退出 3）；api_key=k-2；Tags 保持 | |
-| B8.5 | （可选）KeePassXC 打开主库目检 | gui-created-2 的**历史记录含 1 条旧快照**（edit_entry update_history 语义，SP-F-103）；Tags 在 KeePassXC 条目中互认可见 | |
+| B8.2 | 改标题为 `gui-created-2`、改密码、**自定义字段 api_key 值改为 k-2**、再"添加字段"一行 `env=prod` → 保存 | 成功；**列表与详情立即更新**（无需手动刷新/重开）：选中态跟到新标题、详情显示新值 | |
+| B8.3 | **标题不变只改字段再保存**（如改 api_key 为 k-3） | 详情**立即**显示 k-3（标题不变时此前需手动刷新，v1.1 已修复） | |
+| B8.4 | 自定义字段行 ✕ 删除 `env` 行 → 保存 | 保存后详情不再显示 env | |
+| B8.5 | CLI 核对：`& $SP item get --db $VDB gui-created-2` | 新标题可读（旧名 get 退出 3）；api_key=k-3；Tags 保持 | |
+| B8.6 | （可选）KeePassXC 打开主库目检 | gui-created-2 的**历史记录含旧快照**（edit_entry update_history 语义，SP-F-103）；Tags 在 KeePassXC 条目中互认可见 | |
 
 ### B9. 删除（SP-F-909）
 
@@ -250,20 +301,29 @@ copy "$env:APPDATA\SuperPasswdKey\vault.kdbx" "$env:APPDATA\SuperPasswdKey\vault
 
 | # | 操作 | 预期结果 | 实际结果 |
 |---|---|---|---|
-| B11.1 | 顶栏"设置"：空闲锁定改 **1 分钟** → 保存 | 提示"已保存：自启即时生效；超时配置重启后生效" | |
+| B11.1 | 顶栏"设置"：空闲锁定改 **1 分钟** → 保存 | 提示"已保存：自启即时生效；超时配置重启后生效"；keyfile 路径记忆不受设置保存影响 | |
 | B11.2 | 关闭应用重新启动 → 解锁 → 顶栏"设置" | 空闲锁定显示 1 分钟（持久化生效） | |
-| B11.3 | 解锁后**闲置 1 分钟**（不点击不输入） | 自动切回解锁面板（顶栏倒计时同步归零）；重新解锁正常 | SP-F-903 |
+| B11.3 | 解锁后**闲置 1 分钟**（不点击不输入、**不开编辑表单**） | 自动切回解锁面板（顶栏倒计时同步归零）；重新解锁正常 | SP-F-903 |
 | B11.4 | 勾选"开机自启"保存 → `reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v SuperPasswdKey` | 值存在（带引号 exe 全路径）；**取消勾选**保存后值清零 | SP-F-905 |
 | B11.5 | 测试完把空闲锁定改回原值（如 5 分钟） | — | |
 
-### B12. 锁定语义与互操作
+### B12. 编辑中不被空闲锁定（SP-F-909，v1.1 新增）
 
 | # | 操作 | 预期结果 | 实际结果 |
 |---|---|---|---|
-| B12.1 | 解锁后另开终端：`%SP% item list --db "%APPDATA%\SuperPasswdKey\vault.kdbx" --tag dev` | CLI 独立解锁（再输一次主密码）后正常列出——两进程并存、会话互不干扰（每进程首次主密码，DR-013） | |
-| B12.2 | GUI 解锁期间 CLI **只读**操作（list/get） | 均正常（只读互不影响） | |
-| B12.3 | ⚠️ 全程避免：GUI 解锁期间在 CLI/KeePassXC **修改**主库（MVP 无外部修改检测，GUI 写可能覆盖外部改动）——见 design_docs/16 §8.2 并发注意 | — | |
-| B12.4 | （浏览器填充环境已配置者）扩展走 NM 实例填充 | 不受本轮影响（NM 单进程嵌入逻辑未动） | SP-F-906/907 |
+| B12.1 | 空闲锁定设 1 分钟 → 解锁 → 打开任一条目的**编辑表单** → 闲置 **>1 分钟**（表单内不操作） | **会话不锁定**：表单保持打开、内容不丢；顶栏空闲倒计时保持满格（编辑态暂停 idle 计时） | |
+| B12.2 | 编辑中闲置超时后直接点"保存" | 保存成功（无需重新解锁）；详情刷新 | |
+| B12.3 | 关闭编辑表单后再闲置 1 分钟（不操作） | 恢复正常空闲判定 → 自动切回解锁面板 | SP-F-903 |
+| B12.4 | 边界说明：**绝对过期（默认 30 分钟）不因编辑而暂停**——编辑中达到绝对上限仍会锁定；此时提交提示"会话已锁定"，**表单内容保留**，重新解锁后可直接再保存 | — | |
+
+### B13. 锁定语义与互操作
+
+| # | 操作 | 预期结果 | 实际结果 |
+|---|---|---|---|
+| B13.1 | 解锁后另开终端：`& $SP item list --db $VDB --tag dev` | CLI 独立解锁（再输一次主密码）后正常列出——两进程并存、会话互不干扰（每进程首次主密码，DR-013） | |
+| B13.2 | GUI 解锁期间 CLI **只读**操作（list/get） | 均正常（只读互不影响） | |
+| B13.3 | ⚠️ 全程避免：GUI 解锁期间在 CLI/KeePassXC **修改**主库（MVP 无外部修改检测，GUI 写可能覆盖外部改动）——见 design_docs/16 §8.2 并发注意 | — | |
+| B13.4 | （浏览器填充环境已配置者）扩展走 NM 实例填充 | 不受本轮影响（NM 单进程嵌入逻辑未动） | SP-F-906/907 |
 
 ---
 
@@ -272,5 +332,5 @@ copy "$env:APPDATA\SuperPasswdKey\vault.kdbx" "$env:APPDATA\SuperPasswdKey\vault
 - 每项在"实际结果"列填 ✅ / ❌ / N/A；❌ 附：截图 + 复现步骤 + 当时操作序号。
 - GUI 问题排查：`cd desktop/src-tauri && cargo tauri dev` 可开前端 console（devtools）观察 invoke 报错。
 - CLI 问题先对照 `docs/manual/sp_cli_manual.md` 对应节（每项已标注节号）——手册口径"程序输出与手册不一致时以程序输出为准"，但仍请上报以修手册。
-- 覆盖映射：B2→SP-F-901；B3/B11/B12→902/903/904/905；B4→908/108；B5/B7/B8/B9→909/103/707；B6→601；B10→910；A 组→102/104/105/108 及手册 §13 退出码语义。
-- 测试完成：把本文件中"实际结果"列的结论留档（可直接提交回仓或归档到 docs/reviews/），主库按 0.4 备份还原（如需）。
+- 覆盖映射：B2→SP-F-901；B3/B11→902/903/904/905；B4→908/108；B5/B7/B8/B9/B12→909/103/707；B6→601；B10→910；A 组→102/104/105/108/301/3xx 及手册 §13 退出码语义。
+- 测试完成：把本文件中"实际结果"列的结论留档（可直接提交回仓或归档到 docs/reviews/），主库按 0.5 备份还原（如需）。

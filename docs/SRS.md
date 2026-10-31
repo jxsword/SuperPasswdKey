@@ -1,6 +1,6 @@
 # SuperPasswdKey 软件需求规格说明书（SRS）
 
-- 版本：**V1.7（2026-10-31，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP；V1.6 变更=新增 SP-F-909 桌面 GUI 条目写路径（S1b-1：创建/编辑/删除 + 显示/放大显示交互）；V1.7 变更=新增 SP-F-108 标签分类（KDBX4 原生 Tags 全栈：CLI+GUI，S1b-2）；V1.8 变更=新增 SP-F-910 桌面 GUI 附件管理 + SP-F-909 扩展自定义字段编辑 UI（S1b-2b））**
+- 版本：**V1.7（2026-10-31，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP；V1.6 变更=新增 SP-F-909 桌面 GUI 条目写路径（S1b-1：创建/编辑/删除 + 显示/放大显示交互）；V1.7 变更=新增 SP-F-108 标签分类（KDBX4 原生 Tags 全栈：CLI+GUI，S1b-2）；V1.8 变更=新增 SP-F-910 桌面 GUI 附件管理 + SP-F-909 扩展自定义字段编辑 UI（S1b-2b）；V1.9 变更=SP-F-904 扩展 keyfile 路径记忆（settings.json keyfile_path）+ SP-F-909 编辑中暂停空闲锁定 + CLI 参数校验前置（无库依赖校验移至解锁之前））**
 - 开发模型：瀑布（三轮审核：完整性→一致性→可执行性，记录见 `docs/reviews/srs_review.md`）
 - 需求来源：《docs/research/自研需求基线_SuperPasswdKey.md》（B1–B22）、决策记录 DR-001~005、2 天冲刺计划两轮复审修正
 - 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-F-8xx` Android（V1.2 新增）｜`SP-F-9xx` 桌面 Windows（V1.3 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
@@ -236,9 +236,9 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 描述：idle（机密操作 touch 刷新）与 absolute（自解锁时刻）双超时独立可配（默认 300s/1800s，对齐 DR-006 与用户 30min 示例口径）；任一到即锁库，再次使用须重新主密码；解锁态翻转即向后端/扩展通知。
 - 验收：可注入超时单测（idle=0 解锁后首次访问即锁）；NM 侧 `sp.event locked` 通知（watcher）；重新解锁重置双计时器。
 
-**SP-F-904 桌面设置持久化（P1，DR-013，confirmed）**
-- 描述：%APPDATA%/SuperPasswdKey/settings.json 仅存非机密（idle_ms/absolute_ms/autostart）；serde_json 读写；损坏/缺失回落默认值不崩；超时配置重启生效；自启开关即时生效。任何凭据不入设置文件。
-- 验收：roundtrip/损坏回落/BOM 兼容单测；改设置后 `settings.json` 落盘正确。
+**SP-F-904 桌面设置持久化（P1，DR-013，confirmed；v1.9 扩展 keyfile 路径记忆）**
+- 描述：%APPDATA%/SuperPasswdKey/settings.json 仅存非机密（idle_ms/absolute_ms/autostart + keyfile_path——上次成功解锁使用的 keyfile 路径，2026-10-31 验收反馈新增；路径非机密值，design_docs/15 §6 同口径；解锁成功后自动记忆，设置面板保存不覆盖该字段，读取时文件不存在则返回空、配置保留）；serde_json 读写（旧版文件缺 keyfile_path 字段按空串回落）；损坏/缺失回落默认值不崩；超时配置重启生效；自启开关即时生效。任何凭据不入设置文件。
+- 验收：roundtrip/损坏回落/BOM 兼容/旧版字段回落单测；改设置后 `settings.json` 落盘正确；keyfile 记忆与文件浏览（系统对话框）手工验收。
 
 **SP-F-905 桌面开机自启（P1，DR-013，confirmed）**
 - 描述：HKCU\Software\Microsoft\Windows\CurrentVersion\Run 用户级注册表值（免管理员，手写 registry）；值名 SuperPasswdKey=带引号 exe 全路径；settings.json autostart 字段为偏好单一来源，启动与保存时对账（手删注册表值重启即恢复，关偏好即清残留）。
@@ -257,7 +257,7 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 验收：真实库解锁→列表→搜索→详情→TOTP 复制全链路；锁定态请求返回 locked 语义；组件测试（vitest）+ session 测试回归全绿；CI 七 job 全绿。
 
 **SP-F-909 桌面 GUI 条目写路径（P1，S1b-1，confirmed；S1b-2b 扩展自定义字段编辑 UI）**
-- 描述：GUI 内条目全生命周期——创建（"新的项目"表单）、编辑（详情页编辑表单，标题可改；旧快照自动进 history，SP-F-103 语义经 sp-kdbx edit_entry 单源）、删除（确认对话框）；表单校验对齐 CLI 语义（标题必填；otp 必须 otpauth:// 开头；同名允许，靠列表/搜索区分；S1b-2b 起自定义字段名称非空且非 KDBX 保留名，与 sp-core 同源）；详情交互增强对标 1Password：密码行下拉（显示=掩码↔明文切换、放大显示=全屏大字号模态、复制）；自定义字段完整读回并保真回传（sp-kffi Rust-only 面 find_entry_full，不经 UniFFI 导出、Kotlin 绑定零漂移）；S1b-2b 起表单提供自定义字段增删改行（v0.1 存储不支持 protected 标记持久化——DR-005，保护标记恒为 false 如实披露）；写入后经 save_session 零凭据保存（DR-012 A1 同源）；机密不进前端存储（SP-F-707 口径）。
+- 描述：GUI 内条目全生命周期——创建（"新的项目"表单）、编辑（详情页编辑表单，标题可改；旧快照自动进 history，SP-F-103 语义经 sp-kdbx edit_entry 单源）、删除（确认对话框）；表单校验对齐 CLI 语义（标题必填；otp 必须 otpauth:// 开头；同名允许，靠列表/搜索区分；S1b-2b 起自定义字段名称非空且非 KDBX 保留名，与 sp-core 同源）；详情交互增强对标 1Password：密码行下拉（显示=掩码↔明文切换、放大显示=全屏大字号模态、复制）；**编辑中暂停空闲锁定**（2026-10-31 验收反馈：EntryFormModal 打开期间 idle 超时不触发、顶栏倒计时显示满格；absolute 绝对上限保留不被绕过——表单内容在锁定后保留，重新解锁可直接再保存）；保存后列表与详情立即更新（无需手动刷新）；自定义字段完整读回并保真回传（sp-kffi Rust-only 面 find_entry_full，不经 UniFFI 导出、Kotlin 绑定零漂移）；S1b-2b 起表单提供自定义字段增删改行（v0.1 存储不支持 protected 标记持久化——DR-005，保护标记恒为 false 如实披露）；写入后经 save_session 零凭据保存（DR-012 A1 同源）；机密不进前端存储（SP-F-707 口径）。
 - 验收：GUI 完成一条真实条目的创建→编辑（含改名/改密）→显示/放大显示→删除全生命周期；custom_fields 编辑后不丢（自动化断言）；双超时/锁定语义不回归；组件测试 + Rust session 测试全绿；CI 全绿。
 
 **SP-F-910 桌面 GUI 附件管理（P1，S1b-2b，confirmed）**
