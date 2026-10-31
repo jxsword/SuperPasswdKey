@@ -1,4 +1,4 @@
-# 验收测试清单（GUI + CLI）— v1.1（2026-10-31）
+# 验收测试清单（GUI + CLI）— v1.2（2026-10-31）
 
 > 用途：**逐项执行**的验收清单，覆盖 S1a/S1b 全部用户可见功能（SP-F-901/902/903/904/905/908/909/910/601/108）与 F8 注入（SP-F-301/3xx）。
 > 用法：按序执行，在每行"实际结果"列填 ✅/❌；❌ 请附截图与复现步骤。命令与预期输出以 `sp_cli_manual.md` 为详注；若程序输出与手册不一致，以程序输出为准并如实记录。
@@ -161,43 +161,91 @@ Copy-Item $VDB "$VDB.bak-acceptance"
 | A9.2 | `& $SP export --out C:\vault\backup.zip.age`（手册 §11） | 提示 `Archive passphrase:` 两次；产出 age 加密 zip | SP-F-501 | |
 | A9.3 | 环境变量注入（F8） | **完整用例独立成节，见 A10** | SP-F-301/3xx | |
 
-### A10. 环境变量注入（F8，`sp run` 完整用例，手册 §8）
+### A10. 环境变量注入（F8，`sp run` 完整用例，手册 §8）——**自包含，可独立执行**
 
-> 语义要点：env 文件为 `.env` 格式（`#` 注释、支持引号/跨行/变量展开）；值写 `sp://标题/字段` 引用库内秘密（**明文不落盘，只落"引用"**）；子进程 stdout/stderr 中的秘密值默认打码为 `<redacted>`；子进程**退出码原样透传**；保护变量名（PATH、XDG_*、LC_* 等，SP-F-301）拒绝注入并警告。
-> 前置：A2.1 已建 `github` 条目（条目密码 = 你创建时输入的测试值，下文记作 `<github密码>`）。
+> **自包含口径（v1.2）**：本节从清理旧产物 → 初始化库 → 添加条目 → 注入验证全流程闭环，**不依赖 A 组其他用例的任何产物**；开头会删除本节自己的旧文件，可反复重跑。
+> 语义要点：env 文件为 `.env` 格式（`#` 注释、支持引号/跨行/变量展开）；值写 `sp://标题/字段` 引用库内秘密（**明文不落盘，只落"引用"**——env 文件里没有机密字面量，可以放心备份/提交）；子进程 stdout/stderr 中的秘密值默认打码为 `<redacted>`；子进程**退出码原样透传**；保护变量名（PATH、XDG_*、LC_* 等，SP-F-301）拒绝注入并警告。
+> **凭据卫生**：本节不含任何真实凭据字面量——主密码、条目密码、大模型 API key 全部在交互提示时输入（终端不回显）；示例中的 key 演示值均为占位说明。
+> **零网络口径**：SP-N-304 约束的是 sp 自身运行期零网络；**注入的子进程**（如本节的大模型 API 调用）联网属用户行为，不受该红线约束。
 
-**准备引用文件（秘密不落盘，只落引用）**：
+#### A10.0 变量与清理（幂等重跑入口）
 
 ```powershell
-# 文件 1：正常引用 + 非引用明文 + 保护变量（应被跳过）
-@'
-# SuperPasswdKey inject test (values are sp:// references, not secrets)
-GH_TOKEN=sp://github/Password
-PLAIN_VALUE=plain-not-secret
-PATH=sp://github/Password
-'@ | Out-File C:\vault\app-good.env -Encoding utf8
+$SP    = "E:\proj\SuperPasswdKey\target\release\sp.exe"   # 新构建 CLI（同 §0.2）
+$LLMDB  = "C:\vault\sp-llm-test.kdbx"                     # 本节专用测试库（独立于 $TESTDB）
+$LLMKEY = "C:\vault\sp-llm-test.keyfile"                  # init 自动生成的双因子 keyfile
 
-# 文件 2：坏引用（缺字段段）
-@'
-BAD_URI=sp://malformed
-'@ | Out-File C:\vault\app-bad-uri.env -Encoding utf8
-
-# 文件 3：不存在的条目
-@'
-X=sp://no-such/Password
-'@ | Out-File C:\vault\app-missing.env -Encoding utf8
+# 清理本节旧产物（幂等；删除的只有本节自己的文件）
+Remove-Item $LLMDB, $LLMKEY, "C:\vault\llm.env", `
+  "C:\vault\llm-bad-uri.env", "C:\vault\llm-missing.env" -ErrorAction SilentlyContinue
 ```
+
+#### A10.1 初始化库并添加条目
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
-| A10.1 | `& $SP run --db $TESTDB --env-file C:\vault\app-good.env -- cmd /c echo %GH_TOKEN%` | 解锁一次后子进程执行；stdout 输出 **`<redacted>`**（子进程 echo 出的机密值被打码；此处的 `%GH_TOKEN%` 是 **cmd 变量展开**，非 PowerShell 变量） | SP-F-301/3xx | |
-| A10.2 | `& $SP run --db $TESTDB --env-file C:\vault\app-good.env -- cmd /c echo %PLAIN_VALUE%` | 输出 `plain-not-secret`（非引用值原样透传，不打码） | SP-F-3xx | |
-| A10.3 | `& $SP run --db $TESTDB --no-masking --env-file C:\vault\app-good.env -- cmd /c echo %GH_TOKEN%` | 输出**真实条目密码**（与 `& $SP item get --db $TESTDB github -a Password` 一致；`--no-masking` 仅调试用，验证后勿在敏感终端留存历史） | SP-F-3xx（值正确性） | |
-| A10.4 | 观察 A10.1 的 stderr | 出现 `sp: refusing to set protected variable 'PATH' (SP-F-301)`——PATH 被拒绝注入，其余变量照常（GH_TOKEN 仍正常打码输出） | SP-F-301 | |
-| A10.5 | 退出码透传：`& $SP run --db $TESTDB --env-file C:\vault\app-good.env -- cmd /c exit 7`，然后执行 `$LASTEXITCODE` | 子进程退出码原样透传：`7` | 手册 §8 | |
-| A10.6 | `& $SP run --db $TESTDB --env-file C:\vault\app-bad-uri.env -- cmd /c echo x` | **不提示主密码**，直接报参数错误（`uri 'malformed' must be <title>/<field>`），退出码 **4**（URI 解析前置，v1.1） | 手册 §8/§13 | |
-| A10.7 | `& $SP run --db $TESTDB --env-file C:\vault\app-missing.env -- cmd /c echo x` | 解锁后报未找到（引用的条目不存在），退出码 **3** | 手册 §8/§13 | |
-| A10.8 | （可选，POSIX 语义）`--stdin` 模式：手册 §8 示例 2——秘密经子进程 stdin 的 NUL 分隔记录传入（避免环境变量暴露面）。Windows 下子进程需配合读取，以实际行为为准，不做硬性断言 | — | 手册 §8 | |
+| A10.1a | `& $SP init --db $LLMDB`（交互设主密码，建议一次性测试口令） | 提示 `Generating keyfile (XML v1.0) at ...sp-llm-test.keyfile` + KDF 校准；库与 keyfile 生成 | SP-F-101 | |
+| A10.1b | `& $SP item create --db $LLMDB --keyfile $LLMKEY github`（条目密码随意测试值） | 成功（对照条目，供 GH_TOKEN 引用） | SP-F-102 | |
+| A10.1c | `& $SP item create --db $LLMDB --keyfile $LLMKEY llm-key --url https://api.deepseek.com`；提示 `Entry password (empty to skip):` 时**粘贴你的大模型 API key**（不回显） | 成功——API key 以 Password 字段加密入库（与普通密码同强度）；URL 字段存服务商地址 | SP-F-102 | |
+| A10.1d | `& $SP item get --db $LLMDB --keyfile $LLMKEY llm-key -a Password`（可选自查） | 输出与你粘贴的 key 一致（注意终端历史留存） | — | |
+
+> 注：所有后续命令都带 `--keyfile $LLMKEY`（init 自动生成双因子，缺它解锁必失败）。
+
+#### A10.2 准备注入引用文件（秘密不落盘，只落引用）
+
+```powershell
+# llm.env：大模型 API key（引用）+ 服务商地址（明文，非机密）+ 对照条目 + 保护变量
+@'
+# SuperPasswdKey inject test (values are sp:// references, not secrets)
+LLM_API_KEY=sp://llm-key/Password
+LLM_BASE_URL=https://api.deepseek.com
+GH_TOKEN=sp://github/Password
+PATH=sp://llm-key/Password
+'@ | Out-File C:\vault\llm.env -Encoding utf8
+
+# 坏引用（缺字段段）
+@'
+BAD_URI=sp://malformed
+'@ | Out-File C:\vault\llm-bad-uri.env -Encoding utf8
+
+# 不存在的条目
+@'
+X=sp://no-such/Password
+'@ | Out-File C:\vault\llm-missing.env -Encoding utf8
+```
+
+（示例用 DeepSeek 的 OpenAI 兼容地址；OpenAI 用户把 `LLM_BASE_URL` 改为 `https://api.openai.com/v1` 即可，其余步骤不变。）
+
+#### A10.3 注入验证
+
+| # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
+|---|---|---|---|---|
+| A10.3a | `& $SP run --db $LLMDB --keyfile $LLMKEY --env-file C:\vault\llm.env -- cmd /c echo %LLM_API_KEY%` | 解锁一次后子进程执行；stdout 输出 **`<redacted>`**（子进程 echo 出的 API key 被打码——**即使用户脚本误打印机密也安全**；`%LLM_API_KEY%` 是 **cmd 变量展开**，非 PowerShell 变量） | SP-F-301/3xx | |
+| A10.3b | `... --env-file C:\vault\llm.env -- cmd /c echo %LLM_BASE_URL%` | 输出 `https://api.deepseek.com`（非引用值原样透传，不打码） | SP-F-3xx | |
+| A10.3c | `... --no-masking --env-file C:\vault\llm.env -- cmd /c echo %LLM_API_KEY%` | 输出**真实 API key**（与 A10.1c 粘贴值一致；`--no-masking` 仅调试核对用） | SP-F-3xx（值正确性） | |
+| A10.3d | 观察 A10.3a 的 stderr | 出现 `sp: refusing to set protected variable 'PATH' (SP-F-301)`——PATH 被拒绝注入，其余变量照常 | SP-F-301 | |
+| A10.3e | 退出码透传：`... -- cmd /c exit 7`，然后 `$LASTEXITCODE` | 子进程退出码原样透传：`7` | 手册 §8 | |
+| A10.3f | `& $SP run --db $LLMDB --keyfile $LLMKEY --env-file C:\vault\llm-bad-uri.env -- cmd /c echo x` | **不提示主密码**，直接报参数错误（`uri 'malformed' must be <title>/<field>`），退出码 **4**（URI 解析前置） | 手册 §8/§13 | |
+| A10.3g | `& $SP run --db $LLMDB --keyfile $LLMKEY --env-file C:\vault\llm-missing.env -- cmd /c echo x` | 解锁后报未找到（引用的条目不存在），退出码 **3** | 手册 §8/§13 | |
+
+#### A10.4 实战使用：注入 LLM API key 调用大模型 API
+
+> 子进程（PowerShell）从**环境变量**读取 key（凭据不进命令行参数、不进文件），真实调用一次大模型服务——验证"添加 → 输入 → 使用"全链路。
+
+| # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
+|---|---|---|---|---|
+| A10.4a | `& $SP run --db $LLMDB --keyfile $LLMKEY --env-file C:\vault\llm.env -- powershell -NoProfile -Command "(Invoke-RestMethod -Uri ($env:LLM_BASE_URL + '/models') -Headers @{Authorization = 'Bearer ' + $env:LLM_API_KEY}).data.id"` | 输出服务商返回的**模型 id 列表**（DeepSeek：`deepseek-chat` / `deepseek-reasoner` 等）——API key 从库经环境变量注入、真实鉴权成功 | SP-F-3xx（端到端） | |
+| A10.4b | 把 A10.4a 的命令里的 `LLM_API_KEY` 故意输错验证打码兜底：改用 `-- cmd /c echo Bearer %LLM_API_KEY%` 搭配一个会回显的假调用（可选） | 若某工具把 key 打到 stdout/stderr，输出仍为 `<redacted>`（打码层兜底） | SP-F-3xx | |
+| A10.4c | （可选）chat 冒烟：同 A10.4a 结构改 POST `/chat/completions`（body 传 `{"model":"deepseek-chat","messages":[{"role":"user","content":"ping"}]}`，`-ContentType 'application/json'`） | 返回 JSON 含 `choices[0].message.content`——注入的 key 可直接支撑真实应用 | SP-F-3xx | |
+
+> key 轮换口径：key 更新用 GUI 编辑该条目（S1b 编辑流）或删除重建；env 文件无需改动（引用不变）。
+
+#### A10.5 可选补充与清理
+
+| # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
+|---|---|---|---|---|
+| A10.5a | （可选，POSIX 语义）`--stdin` 模式：手册 §8 示例 2——秘密经子进程 stdin 的 NUL 分隔记录传入（避免环境变量暴露面）。Windows 下子进程需配合读取，以实际行为为准，不做硬性断言 | — | 手册 §8 | |
+| A10.5b | 清理（可选）：`Remove-Item $LLMDB, $LLMKEY, C:\vault\llm*.env -ErrorAction SilentlyContinue` | 本节产物清空 | — | |
 
 > 注：`inject`（F8 模板渲染，`sp inject -i <模板> -o <输出>`）与 `run` 共享 `sp://` 引用与解锁路径，完整语义见手册 §9，不重复列用例。
 
