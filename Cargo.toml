@@ -43,3 +43,10 @@ serde_json = "1"
 [profile.release]
 lto = "thin"
 strip = true
+
+# S1d-1（DR-017）：keepass-ng 0.11.12 vendored 补丁——上游 API 缺口（自定义字段
+# 无受保护变体、读侧丢弃保护位），KDBX4 格式层原生支持。源码自 crates.io 发布
+# 包（Cargo.lock checksum 一致）解包至 vendor/keepass-ng，改动见
+# vendor/keepass-ng/VENDOR-NOTES.md；升级上游时需 rebase。
+[patch.crates-io]
+keepass-ng = { path = "vendor/keepass-ng" }

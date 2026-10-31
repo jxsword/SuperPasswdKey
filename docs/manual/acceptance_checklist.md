@@ -119,6 +119,20 @@ Copy-Item $VDB "$VDB.bak-acceptance"
 | A2b.11 | `& $SP item edit --db $TESTDB github --index 2 --rename github-work` | 成功；此后 `github` 仅剩 1 条，`get github --index 2` 退出 3 | 手册 §4.5 示例 3 | |
 | A2b.12 | `& $SP item delete --db $TESTDB github --index 1` 后 `& $SP item list` | 打印 `Deleted entry 'github' (#-1)`；列表无 `github`、有 `github-work` | 手册 §4.4 | |
 
+### A2c. 受保护自定义字段（手册 §4.1/§4.5/§14.5；2026-10-31 新增，S1d-1/DR-017）
+
+> 依赖 A1 建库；均需先解锁。
+
+| # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
+|---|---|---|---|---|
+| A2c.1 | `& $SP item create --db $TESTDB vault-prod -u svc --field-secret api_key=k-9 --field env=prod` | 成功；一条目同时携带受保护（api_key）与普通（env）字段 | SP-F-102 | |
+| A2c.2 | `& $SP item get --db $TESTDB vault-prod` | `api_key: ●●●●●●●●`（掩码）、`env: prod`（明文） | SP-F-102 | |
+| A2c.3 | `& $SP item get --db $TESTDB vault-prod -a api_key` | 输出 `k-9`（显式取值明文） | SP-F-102 | |
+| A2c.4 | `& $SP item edit --db $TESTDB vault-prod --field-secret api_key=k-10` | 成功；`-a api_key` 读到 `k-10` 且 `get` 仍掩码 | SP-F-102 | |
+| A2c.5 | `& $SP item create --db $TESTDB bad-secret --field-secret "Title=x"` | **不提示主密码**，报保留名错误，退出码 **4** | SP-F-102（校验前置） | |
+| A2c.6 | 用 KeePassXC 打开 `$TESTDB` 查看 vault-prod | `api_key` 属性显示掩码（受保护标记互认），值可经 KeePassXC 解锁查看且为 `k-10`；`env` 明文可见 | 手册 §14.5（互操作） | |
+| A2c.7 | `& $SP item get --db $TESTDB vault-prod` 确认 KeePassXC 侧查看后 sp 读回无变化 | protected 位与值保真（跨工具往返） | SP-F-102 | |
+
 ### A3. item list（手册 §4.3）
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |

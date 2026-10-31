@@ -3,9 +3,12 @@
 //! 设计见 design_docs/02：
 //! - 库内加密由 KDBX4 格式承担；本层负责映射、原子保存、keyfile 生成（XML v1.0）。
 //! - 回退路径：KeepassRsAdapter（DR-005 备选），不改上层。
-//! - 已知限制（DR-005 记录）：keepass_ng 公共 API 仅支持未保护自定义字段
-//!   （set_additional_attribute 拒绝保留名且无受保护变体），CustomField.protected
-//!   在 v0.1 存储为未保护；主密码字段仍为受保护存储。
+//! - S1d-1（DR-017）：自定义字段 protected 位落地（DR-005 v0.1 限制解除）——
+//!   keepass-ng 以 vendored 补丁（vendor/keepass-ng + [patch.crates-io]）公开
+//!   受保护写/读 API；受保护值 = KDBX4 ProtectedValue（内层流 ChaCha20 字段级
+//!   二次加密，与 Password/otp 同机制，KeePassXC 掩码互认）。
+//! - 仍存限制：keepass_ng 公共 API 对 set_additional_attribute 保留名拒绝逻辑
+//!   不变（9 个保留名禁作自定义字段名）。
 
 pub use keepass_ng as engine;
 
@@ -124,12 +127,19 @@ fn apply_model(entry: &mut Entry, m: &EntryModel) {
     entry.set_raw_otp_value(m.otp.as_deref());
     // 标签分类（SP-F-108）：KDBX4 原生 Tags 字符串列表，整表覆写
     *entry.get_tags_mut() = m.tags.clone();
-    // 先清掉旧的未保护自定义字段（保留名除外）
+    // 先清掉旧的自定义字段（保留名除外），再按模型重建——protected 位由
+    // 模型决定（S1d-1/DR-017：受保护值写为 KDBX4 ProtectedValue，字段级
+    // ChaCha20 二次加密，KeePassXC 掩码互认）
     for (k, _) in entry.additional_attributes() {
         let _ = entry.set_additional_attribute(&k, None);
     }
     for f in &m.custom_fields {
-        let _ = entry.set_additional_attribute(&f.name, Some(f.value.as_str()));
+        let value = if f.protected {
+            keepass_ng::db::Value::protected(f.value.as_str().to_string())
+        } else {
+            keepass_ng::db::Value::unprotected(f.value.as_str().to_string())
+        };
+        let _ = entry.set_additional_attribute_value(&f.name, Some(value));
     }
 }
 
@@ -141,12 +151,12 @@ fn model_from_entry(e: &Entry) -> EntryModel {
         url: e.get_url().map(str::to_string),
         notes: e.get_notes().map(str::to_string),
         custom_fields: e
-            .additional_attributes()
+            .additional_attributes_typed()
             .into_iter()
-            .map(|(name, value)| sp_core::CustomField {
+            .map(|(name, v)| sp_core::CustomField {
                 name,
-                value: Zeroizing::new(value),
-                protected: false, // v0.1 限制：见模块文档
+                value: Zeroizing::new(v.get().to_string()),
+                protected: v.is_protected(),
             })
             .collect(),
         otp: e.get_raw_otp_value().map(str::to_string),
@@ -618,6 +628,50 @@ mod tests {
             find_entry_at(&db, "dup", Some(3)),
             Err(SpError::NotFound(_))
         ));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// S1d-1/DR-017：受保护自定义字段——save→reload 后 protected 位与值保真；
+    /// 未保护字段不受影响（同条目混合场景）。
+    #[test]
+    fn protected_custom_field_roundtrip_in_memory() {
+        let (path, factors) = same_title_fixture("prot-cf");
+        let mut db = open_db(&path, &factors).expect("open");
+        let model = find_entry_at(&db, "dup", Some(1)).expect("read");
+        let edited = EntryModel {
+            custom_fields: vec![
+                sp_core::CustomField {
+                    name: "api_key".into(),
+                    value: Zeroizing::new("k-1".into()),
+                    protected: true,
+                },
+                sp_core::CustomField {
+                    name: "region".into(),
+                    value: Zeroizing::new("cn".into()),
+                    protected: false,
+                },
+            ],
+            ..model
+        };
+        edit_entry_at(&mut db, "dup", Some(1), &edited).expect("edit");
+        save_atomic(&db, &path, &factors).expect("save");
+        let db = open_db(&path, &factors).expect("reopen");
+        let m = find_entry_at(&db, "dup", Some(1)).expect("#1");
+        // 顺序不保证（HashMap 语义）——按名断言
+        let api = m
+            .custom_fields
+            .iter()
+            .find(|f| f.name == "api_key")
+            .expect("api_key");
+        assert!(api.protected, "受保护位必须跨 save/reload 保真");
+        assert_eq!(api.value.as_str(), "k-1");
+        let region = m
+            .custom_fields
+            .iter()
+            .find(|f| f.name == "region")
+            .expect("region");
+        assert!(!region.protected, "未保护位不受影响");
+        assert_eq!(region.value.as_str(), "cn");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

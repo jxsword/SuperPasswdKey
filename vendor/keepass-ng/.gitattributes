@@ -1,0 +1,2 @@
+# vendored crate 保持上游字节原样（不做行尾归一化，便于 diff 对上游）
+* -text

@@ -127,3 +127,11 @@
 - 理由: 生态惯例 + 三面现状零破坏 + backlog 既定方向；序号漂移（删除同名条目后前移）以文档口径约束（手册 §4.5"删前重查"惯例）；UUID 寻址留后续。
 - 影响: crates/sp-kdbx、sp-cli（main/commands，纯函数 validate/apply_edit_patch 单测）、sp-core（RESERVED_FIELD_NAMES 上移公开）；手册 §4.5 新节 + §6/§7/§12/§14/附录A；SRS V1.10；追溯矩阵 SP-F-102/103；验收清单 A2b 组；进程级 e2e 因 Mimosa 对测试内子进程构造的模式误报（3 种合规形态均拦）按 attachment_e2e 先例交维护者手动落盘（内容随 PR 交付）。
 - 记录时间 / 会话: 2026-10-31 / SuperPasswdKey S1c 前插入批（item edit + 同名寻址）
+
+## DR-017 2026-10-31 受保护自定义字段：keepass-ng vendored 补丁（DR-005 v0.1 限制闭环） [状态: 生效]
+- 背景: 自定义字段自 v0.1 起仅整库加密无字段级二次加密（DR-005 记录"keepass_ng 公共 API 仅支持未保护自定义字段"）——仅 Password/otp 走 KDBX4 ProtectedValue（ChaCha20）。核实（keepass-ng 0.11.12 源码）：非格式限制，是 crate API 缺口——`set_protected_field_pair` 为 pub(crate)、`additional_attributes()` 读侧丢弃保护位；上游 0.11.12 即最新无修复。用户 S1c 前插入需求（1Password 对标：自定义字段支持类型与受保护）。
+- 选项与权衡: A(vendored 补丁 keepass-ng：vendor/ + [patch.crates-io]，公开受保护写/读 API，格式层零改动，KeePassXC 掩码互认，选定); B(应用层自加密：值自加密后 base64 存未保护属性——不动依赖但 KeePassXC 看到密文破坏 DR-003 互操作卖点且密钥管理自担，弃用); C(等上游——0.11.12 即最新无可等，弃用)。1Password 式类型化字段（FieldKind）经 entry custom_data 承载、涉 Kotlin 绑定重生，排 S4 之后另批。
+- 结论: vendor/keepass-ng（0.11.12 发布包解包，checksum 一致，改动清单见 VENDOR-NOTES.md）新增 `set_additional_attribute_value(Value)` 与 `additional_attributes_typed()`；sp-kdbx apply_model/model_from_entry 按 protected 位读写（去硬编码 false）；CLI `--field-secret`（create/edit，同名覆盖 --field 保护位）、item get 全量输出对受保护字段掩码；GUI 自定义字段行加"保护"勾选；roundtrip 新增 keepassxc-cli 掩码/解掩码互操作用例（注：KeePassXC `show -a` 显式点名即使无 -s 也输出明文，掩码仅默认摘要/--all 列表——上游 Show.cpp 设计）。
+- 理由: 互操作零破坏 + 管道已通（sp-core/kffi/DTO 的 protected 位早已存在，仅存储两端硬编码）+ 改动面最小（两个 API 方法）；vendored 代价以 VENDOR-NOTES + roundtrip 护栏管理，上游公开等价 API 后可回归 crates.io。
+- 影响: vendor/keepass-ng（新增）、根 Cargo.toml（[patch.crates-io]）、crates/sp-kdbx、sp-cli、desktop/ui（EntryFormModal）；手册 §4.1/§4.5/§4.2/§14.5/附录A；SRS V1.11；追溯矩阵 SP-F-102；验收清单 A2c 组；Kotlin 绑定零漂移（FfiCustomField.protected 既有字段）。
+- 记录时间 / 会话: 2026-10-31 / SuperPasswdKey S1c 前插入批（受保护自定义字段）

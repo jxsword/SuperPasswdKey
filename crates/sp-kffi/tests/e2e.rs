@@ -466,9 +466,9 @@ fn find_entry_full_returns_custom_fields_rust_only_surface() {
         .find(|c| c.name == "api_key")
         .expect("api_key present");
     assert_eq!(api_key.value, "k-123");
-    // protected 标记 v0.1 不持久化（DR-005：keepass_ng 无受保护自定义字段 API，
-    // 统一存为未保护，读回恒 false——sp-kdbx 模块文档已知限制）
-    assert!(!api_key.protected);
+    // protected 标记自 S1d-1/DR-017 起持久化（keepass-ng vendored 补丁：字段级
+    // ChaCha20 ProtectedValue，与 Password/otp 同机制）
+    assert!(api_key.protected);
     assert!(full.custom_fields.iter().any(|c| c.name == "region"));
 
     // 对照：旧 FfiEntry 面确实不含 custom_fields（回归口径不破）
