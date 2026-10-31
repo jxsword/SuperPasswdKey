@@ -1,6 +1,6 @@
 # SuperPasswdKey 软件需求规格说明书（SRS）
 
-- 版本：**V1.7（2026-10-31，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP；V1.6 变更=新增 SP-F-909 桌面 GUI 条目写路径（S1b-1：创建/编辑/删除 + 显示/放大显示交互）；V1.7 变更=新增 SP-F-108 标签分类（KDBX4 原生 Tags 全栈：CLI+GUI，S1b-2）；V1.8 变更=新增 SP-F-910 桌面 GUI 附件管理 + SP-F-909 扩展自定义字段编辑 UI（S1b-2b）；V1.9 变更=SP-F-904 扩展 keyfile 路径记忆（settings.json keyfile_path）+ SP-F-909 编辑中暂停空闲锁定 + CLI 参数校验前置（无库依赖校验移至解锁之前））**
+- 版本：**V1.10（2026-10-31，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP；V1.6 变更=新增 SP-F-909 桌面 GUI 条目写路径（S1b-1：创建/编辑/删除 + 显示/放大显示交互）；V1.7 变更=新增 SP-F-108 标签分类（KDBX4 原生 Tags 全栈：CLI+GUI，S1b-2）；V1.8 变更=新增 SP-F-910 桌面 GUI 附件管理 + SP-F-909 扩展自定义字段编辑 UI（S1b-2b）；V1.9 变更=SP-F-904 扩展 keyfile 路径记忆（settings.json keyfile_path）+ SP-F-909 编辑中暂停空闲锁定 + CLI 参数校验前置（无库依赖校验移至解锁之前）；V1.10 变更=SP-F-102 CLI edit 入口落地（`sp item edit`，patch 语义+校验前置）+ 同名条目策略定版 DR-016（允许同名 + `--index` 组内序号寻址：item get/edit/delete/read/clip 与 list --enumerate））**
 - 开发模型：瀑布（三轮审核：完整性→一致性→可执行性，记录见 `docs/reviews/srs_review.md`）
 - 需求来源：《docs/research/自研需求基线_SuperPasswdKey.md》（B1–B22）、决策记录 DR-001~005、2 天冲刺计划两轮复审修正
 - 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-F-8xx` Android（V1.2 新增）｜`SP-F-9xx` 桌面 Windows（V1.3 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
@@ -64,11 +64,11 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 **SP-F-102 条目 CRUD（P0，B1，confirmed）**
 - 描述：`sp item create/edit/delete/list`；类型化条目（login/secure-note/ssh-key/自定义字段）；**全字段加密**（标题/URL/备注等元数据纳入，红线 #4）。
 - 字段：title、username、password、url、notes、自定义字段（名/值/受保护位）、history。
-- 验收：CRUD 后 round-trip（KeePassXC 读回）字段无损；删除进入回收站语义；单库条目数 1000 时 list ≤500ms（SP-N-301）。
+- 验收：CRUD 后 round-trip（KeePassXC 读回）字段无损；删除进入回收站语义；单库条目数 1000 时 list ≤500ms（SP-N-301）；edit 为 patch 语义（未给字段不变，2026-10-31 落地）。
 
 **SP-F-103 修改历史（P0，B1，confirmed）**
 - 描述：每次 edit 保存旧版本为 history 条目（逐字段时间戳）。
-- 验收：history 在 KeePassXC 中可见可回溯；`sp item get --history` 列出。
+- 验收：history 在 KeePassXC 中可见可回溯；`sp item get --history` 列出（查看命令仍为后续；edit 压栈已随 `sp item edit` 落地，2026-10-31）。
 
 **SP-F-104 附件（P1→本期 P0，B21，confirmed；命令族补全 2026-10-29）**
 - 描述：`sp attachment add/list/get`——add 支持对已有条目增补/覆盖附件（同名覆盖），list 列举附件名，get 取回为文件（ACL 限当前用户）或原始字节 stdout（可管道、不落盘）；`sp item create --attach` 保留为建条目时附加；附件存入 KDBX4 binaries（格式层加密）。

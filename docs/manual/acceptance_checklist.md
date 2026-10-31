@@ -97,8 +97,27 @@ Copy-Item $VDB "$VDB.bak-acceptance"
 | A2.2 | `& $SP item create --db $TESTDB work-vpn -u bob --totp "otpauth://totp/Test?secret=JBSWY3DPEHPK3PXP&issuer=Test" --tag work --tag infra` | 成功；单条目携带两个标签 | SP-F-102/108 | |
 | A2.3 | `& $SP item create --db $TESTDB bad-otp --totp "not-otpauth"` | **不提示主密码**（无 `Enter password to unlock`），直接报 `sp: invalid parameter: otp must be an otpauth:// URL (KeePassXC compatible, DR-005)`，退出码 **4** | SP-F-102（校验前置） | |
 | A2.4 | `& $SP item create --db $TESTDB reserved --field "Password=x"` | **不提示主密码**，直接报 `sp: invalid parameter: custom field name 'Password' is reserved`，退出码 **4** | SP-F-102（校验前置） | |
-| A2.5 | `& $SP item create --db $TESTDB github -u alice2`（与 A2.1 同名） | **不报错**（同名允许）；此后 get/read/clip 只命中首个（遮蔽语义，多同名条目的寻址现状见手册 §14 边界）——测试结束记得 delete 清理 | 手册 §4.1 注 | |
+| A2.5 | `& $SP item create --db $TESTDB github -u alice2`（与 A2.1 同名） | **不报错**（同名允许，DR-016）；区分实例用 `--index`（见 A2b 组）——测试结束记得 delete 清理 | 手册 §4.1 注/§4.5 | |
 | A2.6 | `& $SP item create --db $TESTDB files -u f1`（后续附件测试用） | 成功 | SP-F-104 | |
+
+### A2b. item edit 与同名 --index 寻址（手册 §4.5；2026-10-31 新增，DR-016）
+
+> 依赖 A2.1/A2.5 的两条同名 `github` 条目；均需先解锁。
+
+| # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
+|---|---|---|---|---|
+| A2b.1 | `& $SP item list --db $TESTDB --enumerate` | `github` 两行分别带 `#1`/`#2` 序号前缀（Tab 分隔；文档序），其余标题带 `#1` | 手册 §4.3/§4.5 | |
+| A2b.2 | `& $SP item get --db $TESTDB github --index 2 -a UserName` | 输出 `alice2`（A2.5 那条）；`--index 1` 输出 `alice` | DR-016 | |
+| A2b.3 | `& $SP item edit --db $TESTDB github --index 2 -u alice2-edited --url https://github.com/x --field env=prod` | 成功打印 `Updated entry 'github' (#-2): username, url, custom_fields(+1)`（**不回显值**） | SP-F-102 | |
+| A2b.4 | `& $SP item get --db $TESTDB github --index 1` | `#1` 完全不受影响（UserName 仍 `alice`、无 env 字段）——patch 语义 | SP-F-102 | |
+| A2b.5 | `& $SP item read --db $TESTDB github/UserName --index 2` | 输出 `alice2-edited`（read/clip 同口径） | DR-016 | |
+| A2b.6 | `& $SP item edit --db $TESTDB github -p` | 提示 `New entry password (empty to keep current): `；输入空行=保持现密码（`get` 复核 Password 未变） | 手册 §4.5/§12 | |
+| A2b.7 | `& $SP item edit --db $TESTDB github`（无修改参数） | **不提示主密码**，报 `nothing to edit`，退出码 **4** | SP-F-102（校验前置） | |
+| A2b.8 | `& $SP item edit --db $TESTDB github --index 0 -u x` | **不提示主密码**，报 `--index is 1-based`，退出码 **4** | SP-F-102（校验前置） | |
+| A2b.9 | `& $SP item edit --db $TESTDB github --rename ""` | **不提示主密码**，退出码 **4** | SP-F-102（校验前置） | |
+| A2b.10 | `& $SP item get --db $TESTDB github --index 5` | 退出码 **3**，stderr 含同名总数与"越界"字样 | DR-016 | |
+| A2b.11 | `& $SP item edit --db $TESTDB github --index 2 --rename github-work` | 成功；此后 `github` 仅剩 1 条，`get github --index 2` 退出 3 | 手册 §4.5 示例 3 | |
+| A2b.12 | `& $SP item delete --db $TESTDB github --index 1` 后 `& $SP item list` | 打印 `Deleted entry 'github' (#-1)`；列表无 `github`、有 `github-work` | 手册 §4.4 | |
 
 ### A3. item list（手册 §4.3）
 

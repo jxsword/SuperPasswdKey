@@ -53,6 +53,9 @@ enum Command {
         /// Write to file (ACL restricted to current user)
         #[arg(long)]
         out_file: Option<PathBuf>,
+        /// Same-title instance, 1-based in document order (DR-016; default 1)
+        #[arg(long)]
+        index: Option<usize>,
     },
     /// Run a command with secrets injected as env vars (F8, SP-F-301)
     Run {
@@ -87,6 +90,9 @@ enum Command {
         uri: String,
         #[arg(long)]
         timeout: Option<u64>,
+        /// Same-title instance, 1-based in document order (DR-016; default 1)
+        #[arg(long)]
+        index: Option<usize>,
     },
     /// Bulk import (F9): dotenv | csv | bw-json | env | files
     Import {
@@ -155,15 +161,60 @@ enum ItemOp {
         /// Show current TOTP code
         #[arg(short = 't', long)]
         totp: bool,
+        /// Same-title instance, 1-based in document order (DR-016; default 1)
+        #[arg(long)]
+        index: Option<usize>,
     },
     /// List entry titles (optionally filtered by tag)
     List {
         /// Only entries carrying this tag (exact, case-insensitive)
         #[arg(long)]
         tag: Option<String>,
+        /// Prefix each line with its same-title instance number `#n<TAB>` (DR-016)
+        #[arg(long)]
+        enumerate: bool,
+    },
+    /// Edit an existing entry (patch semantics; unspecified fields unchanged)
+    Edit {
+        title: String,
+        /// Same-title instance, 1-based in document order (DR-016; default 1)
+        #[arg(long)]
+        index: Option<usize>,
+        /// New username (empty string clears it)
+        #[arg(short = 'u', long)]
+        username: Option<String>,
+        /// New URL (empty string clears it)
+        #[arg(long)]
+        url: Option<String>,
+        /// New notes (empty string clears it)
+        #[arg(long)]
+        notes: Option<String>,
+        /// Prompt for a new password interactively (empty input keeps current)
+        #[arg(short = 'p', long)]
+        password: bool,
+        /// New TOTP otpauth:// URL (empty string clears it)
+        #[arg(long)]
+        totp: Option<String>,
+        /// Replace the whole tag set (repeatable; empty input clears all)
+        #[arg(long)]
+        tag: Vec<String>,
+        /// Upsert a custom field k=v (repeatable)
+        #[arg(long, value_parser = parse_kv)]
+        field: Vec<(String, String)>,
+        /// Remove a custom field by name (repeatable)
+        #[arg(long)]
+        remove_field: Vec<String>,
+        /// Rename the entry (same-title rule applies to the new title too)
+        #[arg(long)]
+        rename: Option<String>,
     },
     /// Delete an entry (recycle bin semantics)
-    Delete { title: String },
+    Delete {
+        title: String,
+        /// Same-title instance, 1-based in document order (DR-016; default 1)
+        #[arg(long)]
+        index: Option<usize>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -234,11 +285,43 @@ fn run(cli: Cli) -> Result<(), SpError> {
                 tags: tag,
                 attach,
             }),
-            ItemOp::Get { title, field, totp } => {
-                commands::item_get(db, keyfile, title, field, totp)
+            ItemOp::Get {
+                title,
+                field,
+                totp,
+                index,
+            } => commands::item_get(db, keyfile, title, field, totp, index),
+            ItemOp::List { tag, enumerate } => {
+                commands::item_list(db, keyfile, tag.as_deref(), enumerate)
             }
-            ItemOp::List { tag } => commands::item_list(db, keyfile, tag.as_deref()),
-            ItemOp::Delete { title } => commands::item_delete(db, keyfile, title),
+            ItemOp::Edit {
+                title,
+                index,
+                username,
+                url,
+                notes,
+                password,
+                totp,
+                tag,
+                field,
+                remove_field,
+                rename,
+            } => commands::item_edit(commands::EditOptions {
+                cli_db: cli.db.clone(),
+                cli_keyfile: cli.keyfile.clone(),
+                title,
+                index,
+                username,
+                url,
+                notes,
+                password,
+                totp,
+                tags: tag,
+                fields: field,
+                remove_fields: remove_field,
+                rename,
+            }),
+            ItemOp::Delete { title, index } => commands::item_delete(db, keyfile, title, index),
         },
         Command::Attachment { op } => match op {
             AttachmentOp::Add { title, file, name } => {
@@ -253,8 +336,13 @@ fn run(cli: Cli) -> Result<(), SpError> {
             uri,
             no_newline,
             out_file,
-        } => commands::read(db, keyfile, uri, no_newline, out_file),
-        Command::Clip { uri, timeout } => commands::clip(db, keyfile, uri, timeout),
+            index,
+        } => commands::read(db, keyfile, uri, no_newline, out_file, index),
+        Command::Clip {
+            uri,
+            timeout,
+            index,
+        } => commands::clip(db, keyfile, uri, timeout, index),
         Command::Run {
             env_file,
             no_masking,
