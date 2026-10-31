@@ -183,10 +183,32 @@ pub struct CreateOptions {
     pub url: Option<String>,
     pub notes: Option<String>,
     pub fields: Vec<(String, String)>,
+    /// 受保护自定义字段（S1d-1/DR-017：字段级 ChaCha20 二次加密，KeePassXC 掩码互认）
+    pub field_secrets: Vec<(String, String)>,
     pub totp: Option<String>,
     /// 标签分类（SP-F-108；可重复；trim 后空串剔除，校验在 EntryModel::validate）
     pub tags: Vec<String>,
     pub attach: Option<PathBuf>,
+}
+
+/// --field 与 --field-secret 合并建 CustomField 列表（后者 protected=true）
+fn build_custom_fields(
+    fields: &[(String, String)],
+    field_secrets: &[(String, String)],
+) -> Vec<CustomField> {
+    fields
+        .iter()
+        .map(|(name, value)| CustomField {
+            name: name.clone(),
+            value: Zeroizing::new(value.clone()),
+            protected: false,
+        })
+        .chain(field_secrets.iter().map(|(name, value)| CustomField {
+            name: name.clone(),
+            value: Zeroizing::new(value.clone()),
+            protected: true,
+        }))
+        .collect()
 }
 
 pub fn item_create(opts: CreateOptions) -> Result<(), SpError> {
@@ -198,6 +220,7 @@ pub fn item_create(opts: CreateOptions) -> Result<(), SpError> {
         url,
         notes,
         fields,
+        field_secrets,
         totp,
         tags,
         attach,
@@ -212,14 +235,7 @@ pub fn item_create(opts: CreateOptions) -> Result<(), SpError> {
         password: None,
         url: None,
         notes: None,
-        custom_fields: fields
-            .iter()
-            .map(|(name, value)| CustomField {
-                name: name.clone(),
-                value: Zeroizing::new(value.clone()),
-                protected: false,
-            })
-            .collect(),
+        custom_fields: build_custom_fields(&fields, &field_secrets),
         otp: totp.clone(),
         tags: tags.clone(),
     }
@@ -243,14 +259,7 @@ pub fn item_create(opts: CreateOptions) -> Result<(), SpError> {
         password: if pw.is_empty() { None } else { Some(pw) },
         url,
         notes,
-        custom_fields: fields
-            .into_iter()
-            .map(|(name, value)| CustomField {
-                name,
-                value: Zeroizing::new(value),
-                protected: false, // v0.1 限制（DR-005 记录）
-            })
-            .collect(),
+        custom_fields: build_custom_fields(&fields, &field_secrets),
         otp: totp,
         tags: tags
             .into_iter()
@@ -325,7 +334,13 @@ pub fn item_get(
                 println!("Notes: {}", m.notes.as_deref().unwrap_or(""));
             }
             for c in &m.custom_fields {
-                println!("{}: {}", c.name, c.value.as_str());
+                // S1d-1：受保护字段全量展示时掩码（与 GUI 口径一致）；单字段
+                // `-a <name>` 为显式请求，仍输出明文
+                if c.protected {
+                    println!("{}: ●●●●●●●●", c.name);
+                } else {
+                    println!("{}: {}", c.name, c.value.as_str());
+                }
             }
         }
     }
@@ -424,6 +439,8 @@ pub struct EditOptions {
     /// 整体替换标签集（空集=清空）
     pub tags: Vec<String>,
     pub fields: Vec<(String, String)>,
+    /// 受保护自定义字段 upsert（S1d-1/DR-017；同名键覆盖 --field 的保护位）
+    pub field_secrets: Vec<(String, String)>,
     pub remove_fields: Vec<String>,
     pub rename: Option<String>,
 }
@@ -504,6 +521,18 @@ fn validate_edit_patch(opts: &EditOptions) -> Result<(), SpError> {
             )));
         }
     }
+    for (name, _) in &opts.field_secrets {
+        if name.trim().is_empty() {
+            return Err(SpError::Parameter(
+                "custom field name must not be empty".into(),
+            ));
+        }
+        if sp_core::RESERVED_FIELD_NAMES.contains(&name.as_str()) {
+            return Err(SpError::Parameter(format!(
+                "custom field name '{name}' is reserved"
+            )));
+        }
+    }
     for name in &opts.remove_fields {
         if name.trim().is_empty() {
             return Err(SpError::Parameter(
@@ -518,12 +547,13 @@ fn validate_edit_patch(opts: &EditOptions) -> Result<(), SpError> {
         && opts.totp.is_none()
         && opts.tags.is_empty()
         && opts.fields.is_empty()
+        && opts.field_secrets.is_empty()
         && opts.remove_fields.is_empty()
         && opts.rename.is_none()
     {
         return Err(SpError::Parameter(
             "nothing to edit: give at least one of \
-             -u/--url/--notes/-p/--totp/--tag/--field/--remove-field/--rename"
+             -u/--url/--notes/-p/--totp/--tag/--field/--field-secret/--remove-field/--rename"
                 .into(),
         ));
     }
@@ -532,7 +562,8 @@ fn validate_edit_patch(opts: &EditOptions) -> Result<(), SpError> {
 
 /// 合并补丁到现模型（纯函数；new_password=None 表示保持现密码）。
 /// patch 语义：未给出的字段保持不变；-u/--url/--notes/--totp 空串=清除；
-/// --tag 整体替换（trim 后空串剔除，全空=清空）；--field upsert；
+/// --tag 整体替换（trim 后空串剔除，全空=清空）；--field upsert（不动既有的
+/// 保护位）；--field-secret upsert（置保护位，同名覆盖 --field）；
 /// --remove-field 按名删除；--rename 改写标题。
 fn apply_edit_patch(
     mut current: EntryModel,
@@ -569,7 +600,20 @@ fn apply_edit_patch(
             current.custom_fields.push(CustomField {
                 name: name.clone(),
                 value: Zeroizing::new(value.clone()),
-                protected: false, // v0.1 存储限制（DR-005 记录）
+                protected: false,
+            });
+        }
+    }
+    // --field-secret 后应用：同名键覆盖 --field 的值与保护位（S1d-1/DR-017）
+    for (name, value) in &opts.field_secrets {
+        if let Some(f) = current.custom_fields.iter_mut().find(|f| &f.name == name) {
+            f.value = Zeroizing::new(value.clone());
+            f.protected = true;
+        } else {
+            current.custom_fields.push(CustomField {
+                name: name.clone(),
+                value: Zeroizing::new(value.clone()),
+                protected: true,
             });
         }
     }
@@ -608,6 +652,12 @@ fn edit_summary(opts: &EditOptions, merged: &EntryModel) -> String {
     }
     if !opts.fields.is_empty() {
         parts.push(format!("custom_fields(+{})", opts.fields.len()));
+    }
+    if !opts.field_secrets.is_empty() {
+        parts.push(format!(
+            "custom_fields_secret(+{})",
+            opts.field_secrets.len()
+        ));
     }
     if !opts.remove_fields.is_empty() {
         parts.push(format!("custom_fields(-{})", opts.remove_fields.len()));
@@ -971,6 +1021,7 @@ mod item_edit_tests {
             totp: None,
             tags: vec![],
             fields: vec![],
+            field_secrets: vec![],
             remove_fields: vec![],
             rename: None,
         }
@@ -1086,6 +1137,56 @@ mod item_edit_tests {
             m.password.as_ref().map(|p| p.as_str().to_string()),
             Some("sp-test-only-new".to_string())
         );
+    }
+
+    #[test]
+    fn apply_patch_field_secret_overrides_field_protection() {
+        // S1d-1：--field 与 --field-secret 同名相遇，后者覆盖值与保护位；
+        // --field upsert 既有受保护字段时不动保护位
+        let mut o = opts();
+        o.fields = vec![
+            ("env".into(), "prod".into()),    // 既有未保护 upsert
+            ("api_key".into(), "k-2".into()), // 既有受保护 upsert（base_model 里无）
+        ];
+        o.field_secrets = vec![
+            ("api_key".into(), "k-secret".into()), // 覆盖上面 --field 的 api_key
+            ("token".into(), "t-1".into()),        // 新增受保护
+        ];
+        let m = apply_edit_patch(base_model(), &o, None).expect("apply");
+        let env = m
+            .custom_fields
+            .iter()
+            .find(|f| f.name == "env")
+            .expect("env");
+        assert_eq!(env.value.as_str(), "prod");
+        assert!(!env.protected, "--field 不改既有保护位");
+        let api = m
+            .custom_fields
+            .iter()
+            .find(|f| f.name == "api_key")
+            .expect("api_key");
+        assert_eq!(api.value.as_str(), "k-secret");
+        assert!(api.protected, "--field-secret 同名覆盖 --field");
+        let token = m
+            .custom_fields
+            .iter()
+            .find(|f| f.name == "token")
+            .expect("token");
+        assert!(token.protected);
+        assert_eq!(token.value.as_str(), "t-1");
+    }
+
+    #[test]
+    fn validate_rejects_field_secret_reserved_name() {
+        let mut o = opts();
+        o.field_secrets = vec![("Title".into(), "x".into())];
+        match validate_edit_patch(&o) {
+            Err(SpError::Parameter(m)) => assert!(m.contains("reserved"), "{m}"),
+            other => panic!("expected Parameter, got {other:?}"),
+        }
+        let mut o = opts();
+        o.field_secrets = vec![("token".into(), "t".into())];
+        assert!(validate_edit_patch(&o).is_ok());
     }
 }
 

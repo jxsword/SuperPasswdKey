@@ -142,6 +142,10 @@ enum ItemOp {
         /// Custom field k=v (repeatable)
         #[arg(long, value_parser = parse_kv)]
         field: Vec<(String, String)>,
+        /// Protected custom field k=v (repeatable; S1d-1: value stored with
+        /// field-level ChaCha20 encryption, KeePassXC masks it)
+        #[arg(long, value_parser = parse_kv)]
+        field_secret: Vec<(String, String)>,
         /// TOTP otpauth:// URL
         #[arg(long)]
         totp: Option<String>,
@@ -201,6 +205,10 @@ enum ItemOp {
         /// Upsert a custom field k=v (repeatable)
         #[arg(long, value_parser = parse_kv)]
         field: Vec<(String, String)>,
+        /// Upsert a protected custom field k=v (repeatable; S1d-1; overrides
+        /// --field on the same name)
+        #[arg(long, value_parser = parse_kv)]
+        field_secret: Vec<(String, String)>,
         /// Remove a custom field by name (repeatable)
         #[arg(long)]
         remove_field: Vec<String>,
@@ -270,6 +278,7 @@ fn run(cli: Cli) -> Result<(), SpError> {
                 url,
                 notes,
                 field,
+                field_secret,
                 totp,
                 tag,
                 attach,
@@ -281,6 +290,7 @@ fn run(cli: Cli) -> Result<(), SpError> {
                 url,
                 notes,
                 fields: field,
+                field_secrets: field_secret,
                 totp,
                 tags: tag,
                 attach,
@@ -304,6 +314,7 @@ fn run(cli: Cli) -> Result<(), SpError> {
                 totp,
                 tag,
                 field,
+                field_secret,
                 remove_field,
                 rename,
             } => commands::item_edit(commands::EditOptions {
@@ -318,6 +329,7 @@ fn run(cli: Cli) -> Result<(), SpError> {
                 totp,
                 tags: tag,
                 fields: field,
+                field_secrets: field_secret,
                 remove_fields: remove_field,
                 rename,
             }),

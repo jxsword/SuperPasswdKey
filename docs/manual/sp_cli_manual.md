@@ -195,6 +195,7 @@ sp init --db D:\keys\work.kdbx --keyfile E:\separate-medium\work.keyfile --kdf-t
 | `--url <URL>` | — | 否 | 无 | 站点地址（**浏览器填充按此匹配**，建议写完整网址） |
 | `--notes <NOTES>` | — | 否 | 无 | 备注（自由文本） |
 | `--field <FIELD>` | — | 否 | 无 | 自定义字段 `键=值`，**可重复**多次；9 个保留名禁止：`Password/Title/URL/UserName/Notes/otp/BinaryData/Additional/BinaryDesc`（用了报参数错误，退出码 4） |
+| `--field-secret <FIELD>` | — | 否 | 无 | **受保护**自定义字段 `键=值`，可重复（S1d-1）：值以字段级 ChaCha20 二次加密存储（与 Password/TOTP 同机制），KeePassXC 显示掩码互认；保留名/空名同禁 |
 | `--totp <TOTP>` | — | 否 | 无 | TOTP 链接，必须是 `otpauth://` 开头（否则退出码 4） |
 | `--tag <TAG>` | — | 否 | 无 | 标签分类，**可重复**多次（如 `--tag work --tag infra`）；存入 KDBX4 原生 Tags 字段，KeePassXC 互认；自动 trim，空标签被剔除（SP-F-108） |
 | `--attach <ATTACH>` | — | 否 | 无 | 附加一个文件（任意类型二进制；**仅取文件名**，同名会覆盖；已有条目补加/读回见 §5） |
@@ -269,7 +270,7 @@ sp item get work-vpn -t
 ```
 
 - **用途**：`get` 无参时逐行列出 Title/UserName/Password/URL/Tags（条目带标签时）/Notes 与全部自定义字段；`-t` 直接拿 TOTP 码去登录。
-- **注意事项**：无参输出把**明文密码整行打印**（脚本请勿 `grep` 后再 `echo` 进日志）；`-t` 输出每 30 秒变化的 6 位码，请勿保存/转发。
+- **注意事项**：无参输出把**明文密码整行打印**（脚本请勿 `grep` 后再 `echo` 进日志）；**受保护自定义字段（--field-secret）在全量输出中显示掩码 `●●●●●●●●`**，需值时用 `-a <名称>` 显式取值；`-t` 输出每 30 秒变化的 6 位码，请勿保存/转发。
 - **关联命令**：`sp read github/totp`（脚本里取码的等价写法）。
 
 ---
@@ -351,6 +352,7 @@ sp item list
 | `--totp <VAL>` | — | 否 | 不变 | 新 TOTP 链接（须 `otpauth://` 开头）；空串清除；非 otpauth 值退出 4 |
 | `--tag <TAG>` | — | 否 | 不变 | **整体替换**标签集（可重复；自动 trim、空标签剔除；全空串=清空全部标签） |
 | `--field <K=V>` | — | 否 | 不变 | 自定义字段 upsert（可重复）：同名键覆盖值，新键追加；保留名/空键名退出 4 |
+| `--field-secret <K=V>` | — | 否 | 不变 | **受保护**自定义字段 upsert（可重复，S1d-1）：同名键覆盖 `--field` 的值与保护位；既有受保护字段经 `--field` 改值时保护位不变 |
 | `--remove-field <K>` | — | 否 | 不变 | 按名删除自定义字段（可重复；名字不存在无副作用） |
 | `--rename <NEW>` | — | 否 | 不变 | 改标题（可与其它字段同批）；空串退出 4；改名后允许与其它条目同名（DR-016） |
 | `--db / --keyfile / -h` | — | — | — | 见 §2 |
@@ -838,7 +840,7 @@ printf '%s\n' "$MASTER_PW" | sp item list
 2. **导入条目只含"值"**：标题/用户名/URL 不随导入写入（§10.1），需人工补全后可用 `sp item edit` 补齐（2026-10-31 起有编辑入口）。
 3. **无归档一键回导**：`sp export` 的归档恢复需手动解包处理（§11 示例 2）。
 4. **没有 `--force/--quiet/--verbose`**：SRS/早期设计提及但未实现；`item create -p` 参数不存在（帮助文案以 `sp --help` 为准）。
-5. **字段保护级别**：密码与 TOTP 在库内还有一层字段级保护（ChaCha20）；**用户名、URL、备注、自定义字段只有整库加密保护**（解密后 XML 内明文）——高敏材料请放密码字段或附件。
+5. **字段保护级别**：密码、TOTP 与**受保护自定义字段**（`--field-secret`/GUI"保护"勾选，S1d-1）在库内还有一层字段级保护（ChaCha20 ProtectedValue）；**用户名、URL、备注、普通自定义字段只有整库加密保护**（解密后 XML 内明文）——高敏材料请放密码字段、受保护字段或附件。注意：`item get` 全量输出对受保护字段显示掩码，`-a <名称>` 显式取值仍输出明文；KeePassXC 的 `show -a` 点名也会输出明文（掩码仅在其默认/`--all` 列表生效）。
 6. **同名条目**（DR-016，2026-10-31 起）：创建/导入**不查重**（允许同名）；查询/删除/修改用 `--index` 指定实例（`item get/edit/delete/read/clip`；`item list --enumerate` 看序号），缺省=首个命中；**附件命令族与 `sp run/inject` 的 sp:// 引用暂不支持 `--index`**（维持首个命中）；删除同名条目后其余实例序号前移。
 7. **每次保存都会重加密整库**（随机盐/随机种子轮换），大附件会增加保存耗时与内存占用（附件与库均为全量读入内存）。
 
@@ -853,7 +855,7 @@ printf '%s\n' "$MASTER_PW" | sp item list
 
 ## 附录 A：全命令全参数覆盖核对表
 
-> 核对基准：`sp --help` 与全部子命令 `--help` 输出（2026-10-31，随 `sp item edit` 新增更新），逐项比对打勾。
+> 核对基准：`sp --help` 与全部子命令 `--help` 输出（2026-10-31，随 `sp item edit`/`--field-secret` 更新），逐项比对打勾。
 
 | 命令 | 子命令 / 参数（全部） | 覆盖 |
 |---|---|---|
@@ -861,10 +863,10 @@ printf '%s\n' "$MASTER_PW" | sp item list
 | 全局 | `--db` `--keyfile` `-h/--help` `-V/--version` | ☑ |
 | `sp init` | `--db` `--kdf-target-ms`（默认 700） `--keyfile` `-h` | ☑ |
 | `sp item` | `create` `get` `list` `edit` `delete` `help` | ☑ |
-| `sp item create` | `<TITLE>` `-u/--username` `--url` `--notes` `--field`(重复) `--totp` `--tag`(重复) `--attach` `--db` `--keyfile` `-h` | ☑ |
+| `sp item create` | `<TITLE>` `-u/--username` `--url` `--notes` `--field`(重复) `--field-secret`(重复) `--totp` `--tag`(重复) `--attach` `--db` `--keyfile` `-h` | ☑ |
 | `sp item get` | `<TITLE>` `-a/--field` `-t/--totp` `--index` `--db` `--keyfile` `-h` | ☑ |
 | `sp item list` | `--tag` `--enumerate` `--db` `--keyfile` `-h` | ☑ |
-| `sp item edit` | `<TITLE>` `--index` `-u/--username` `--url` `--notes` `-p/--password` `--totp` `--tag`(重复) `--field`(重复) `--remove-field`(重复) `--rename` `--db` `--keyfile` `-h` | ☑ |
+| `sp item edit` | `<TITLE>` `--index` `-u/--username` `--url` `--notes` `-p/--password` `--totp` `--tag`(重复) `--field`(重复) `--field-secret`(重复) `--remove-field`(重复) `--rename` `--db` `--keyfile` `-h` | ☑ |
 | `sp item delete` | `<TITLE>` `--index` `--db` `--keyfile` `-h` | ☑ |
 | `sp attachment` | `add` `list` `get` `help` | ☑ |
 | `sp attachment add` | `<TITLE>` `<FILE>` `--name` `--db` `--keyfile` `-h` | ☑ |

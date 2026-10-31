@@ -37,7 +37,8 @@ const url = ref(props.initial?.url ?? "");
 const notes = ref(props.initial?.notes ?? "");
 const otp = ref(props.initial?.otp ?? "");
 const tagsText = ref((props.initial?.tags ?? []).join(", "));
-// 自定义字段编辑行（S1b-2b；v0.1 存储不支持 protected 标记——DR-005，恒为 false）
+// 自定义字段编辑行（S1b-2b；S1d-1/DR-017：protected 位可编辑——受保护值
+// 字段级 ChaCha20 二次加密存储，详情页掩码显示）
 const fields = ref<CustomField[]>(
   (props.initial?.custom_fields ?? []).map((f) => ({ ...f })),
 );
@@ -170,6 +171,9 @@ async function submit() {
           placeholder="值"
           autocomplete="off"
         />
+        <label class="cf-protect" :title="'受保护值字段级加密存储，详情页掩码显示'">
+          <input type="checkbox" v-model="f.protected" />保护
+        </label>
         <button class="mini" type="button" @click="removeField(i)">✕</button>
       </div>
       <button class="mini cf-add" type="button" @click="addField">＋ 添加字段</button>
@@ -327,6 +331,17 @@ button:disabled {
 
 .cf-value {
   flex: 1;
+}
+
+.cf-protect {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .cf-add {

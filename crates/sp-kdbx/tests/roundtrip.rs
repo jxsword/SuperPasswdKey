@@ -336,3 +336,140 @@ fn roundtrip_sp_to_keepassxc_and_back() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// S1d-1/DR-017：受保护自定义属性互操作——sp(keepass_ng vendored patch) 写
+/// ProtectedValue 自定义属性 → keepassxc-cli 无 `-s` 掩码、`-s` 解掩码读出 →
+/// sp 重开后保护位与值保真（KDBX4 格式原生语义，KeePassXC 掩码互认）。
+#[test]
+fn protected_custom_attribute_interop_with_keepassxc() {
+    let dir = std::env::temp_dir().join(format!("sp-prot-attr-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let db_path = dir.join("prot-attr.kdbx");
+    let keyfile_path = dir.join("prot-attr.keyfile");
+    gen_keyfile(&keyfile_path);
+
+    let config = DatabaseConfig {
+        kdf_config: KdfConfig::Argon2id {
+            iterations: 3,
+            memory: TEST_KDF_MEMORY_BYTES,
+            parallelism: 2,
+            version: Argon2Version::Version13,
+        },
+        ..DatabaseConfig::default()
+    };
+    let db = Database::new(config);
+    let mut entry = Entry::default();
+    entry.set_title(Some("sp-prot-attr"));
+    entry
+        .set_additional_attribute_value(
+            "sp-api-key",
+            Some(keepass_ng::db::Value::protected(
+                "sp-protected-attr-value".to_string(),
+            )),
+        )
+        .expect("set protected attr");
+    entry
+        .set_additional_attribute_value(
+            "sp-plain",
+            Some(keepass_ng::db::Value::unprotected(
+                "sp-plain-value".to_string(),
+            )),
+        )
+        .expect("set plain attr");
+    group_add_child(&db.root, rc_refcell_node(entry), 0).expect("add entry");
+
+    let kf = std::fs::File::open(&keyfile_path).unwrap();
+    let key = DatabaseKey::new()
+        .with_keyfile(&mut std::io::BufReader::new(kf))
+        .unwrap();
+    let mut out = std::fs::File::create(&db_path).unwrap();
+    db.save(&mut out, key).expect("save");
+
+    let db_str = db_path.to_string_lossy().to_string();
+    let kf_str = keyfile_path.to_string_lossy().to_string();
+
+    // ---- keepassxc-cli 侧：掩码语义（KeePassXC Show.cpp：仅默认摘要/--all
+    // 列表对受保护属性显示 PROTECTED；-a 显式点名即使无 -s 也输出明文——上游
+    // 设计如此，故掩码断言用 --all） ----
+    let all_masked = kxc(&[
+        "show",
+        "-q",
+        "--all",
+        "-k",
+        kf_str.as_str(),
+        db_str.as_str(),
+        "sp-prot-attr",
+    ]);
+    assert!(
+        !all_masked.contains("sp-protected-attr-value"),
+        "受保护属性在 --all 列表不得无 -s 泄漏明文: {all_masked}"
+    );
+    assert!(
+        all_masked.contains("sp-api-key: PROTECTED"),
+        "受保护属性掩码显示: {all_masked}"
+    );
+    assert!(
+        all_masked.contains("sp-plain-value"),
+        "未保护属性明文可见: {all_masked}"
+    );
+
+    // ---- keepassxc-cli 侧：-a 显式点名 + -s 解掩码读出（格式层互认） ----
+    let revealed = kxc(&[
+        "show",
+        "-q",
+        "-s",
+        "-a",
+        "sp-api-key",
+        "-k",
+        kf_str.as_str(),
+        db_str.as_str(),
+        "sp-prot-attr",
+    ]);
+    assert!(
+        revealed.contains("sp-protected-attr-value"),
+        "受保护属性 -s 解掩码读出: {revealed}"
+    );
+
+    // ---- sp 侧重开：保护位与值保真（读侧 typed API） ----
+    let kf = std::fs::File::open(&keyfile_path).unwrap();
+    let key = DatabaseKey::new()
+        .with_keyfile(&mut std::io::BufReader::new(kf))
+        .unwrap();
+    let mut f = std::fs::File::open(&db_path).unwrap();
+    let reopened = Database::open(&mut f, key).expect("reopen");
+    let (api, plain) = {
+        let root = reopened.root.borrow();
+        let group = root.downcast_ref::<Group>().expect("root group");
+        group
+            .entries()
+            .iter()
+            .find_map(|n| {
+                let e = n.borrow();
+                e.downcast_ref::<Entry>()
+                    .filter(|e| e.get_title() == Some("sp-prot-attr"))
+                    .map(|e| {
+                        let attrs = e.additional_attributes_typed();
+                        let api = attrs
+                            .iter()
+                            .find(|(k, _)| k == "sp-api-key")
+                            .expect("protected attr present")
+                            .1
+                            .clone();
+                        let plain = attrs
+                            .iter()
+                            .find(|(k, _)| k == "sp-plain")
+                            .expect("plain attr present")
+                            .1
+                            .clone();
+                        (api, plain)
+                    })
+            })
+            .expect("entry present")
+    };
+    assert!(api.is_protected(), "保护位跨 keepassxc 往返保真");
+    assert_eq!(api.get(), "sp-protected-attr-value");
+    assert!(!plain.is_protected(), "未保护位不受影响");
+    assert_eq!(plain.get(), "sp-plain-value");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

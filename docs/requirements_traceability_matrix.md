@@ -1,12 +1,12 @@
 # 需求追踪矩阵（Requirements Traceability Matrix）
 
-- SRS 版本：V1.10（2026-10-31；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
+- SRS 版本：V1.11（2026-10-31；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
 - 状态图例：🟢 已覆盖｜🟡 部分（后置项注明）｜⚪ 计划中
 
 | 需求编号 | 需求标题 | 来源（基线/DR） | 设计文档 | 测试用例 | 状态 |
 |---|---|---|---|---|---|
 | SP-F-101 | 库初始化 | B1/B2/B3, DR-003 | 01, 02 | sp-kdbx 单测/roundtrip 对拍 + `sp init` CLI 实测（2026-10-29 本机建库全流程，含 KDF 校准/keyfile 生成/配置回写） | 🟢 |
-| SP-F-102 | 条目 CRUD（全字段加密） | B1 | 01, 02, 03 | sp-kdbx 单测（add/find/list/delete + 同名 --index 寻址）+ KeePassXC roundtrip 对拍 + CLI item 族实测（2026-10-29/30）+ item edit 纯函数单测（validate/apply patch，2026-10-31） | 🟢 |
+| SP-F-102 | 条目 CRUD（全字段加密） | B1 | 01, 02, 03 | sp-kdbx 单测（add/find/list/delete + 同名 --index 寻址 + **受保护自定义字段 save/reload 保真**）+ KeePassXC roundtrip 对拍（**含受保护属性掩码/解掩码互操作**）+ CLI item 族实测（2026-10-29/30）+ item edit 纯函数单测（validate/apply patch，2026-10-31） | 🟢 |
 | SP-F-103 | 修改历史 | B1 | 02 | sp-kdbx edit_entry 单测（update_history 压栈；indexed 面 history 语义随 edit_entry_at 单测）；**CLI edit 入口落地（2026-10-31，`sp item edit` patch 语义，DR-016 同批）**；FFI/Android 面已用（SP-F-805 更新路径 2026-10-29）；GUI edit 入口落地（SP-F-909，S1b-1） | 🟢 |
 | SP-F-104 | 附件（add/list/get 命令族） | B21 | 02, 手册 | e2e：1MB add→list→get 双通道往返无损 + 同名覆盖 + 错误码（3/3/2）（2026-10-29，`sp attachment`）；CLI 冒烟实测通过；KeePassXC 对拍（roundtrip.rs 既有） | 🟢 |
 | SP-F-105 | 解锁（双因子，无跨进程会话） | B3, 冲刺复审#1 | 01, 03 | 错密码/keyfile 缺失 → 退出码 2（session 单测）；zeroize 审查；每命令独立解锁实测 | 🟢 |

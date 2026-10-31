@@ -35,3 +35,8 @@ sp-kdbx = { path = "../../crates/sp-kdbx" }
 [profile.release]
 strip = true
 lto = true
+
+# S1d-1（DR-017）：与根 workspace 同源——keepass-ng vendored 补丁（自定义字段
+# 受保护写/读 API），路径相对本清单；详见 vendor/keepass-ng/VENDOR-NOTES.md
+[patch.crates-io]
+keepass-ng = { path = "../../vendor/keepass-ng" }

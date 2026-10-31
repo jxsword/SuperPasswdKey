@@ -142,4 +142,27 @@ describe("EntryFormModal", () => {
     );
     wrapper.unmount();
   });
+
+  it("自定义字段保护勾选随草稿回传（S1d-1/DR-017）", async () => {
+    api.entryCreate.mockResolvedValue(undefined);
+    const wrapper = mount(EntryFormModal, { props: { mode: "create" } });
+    await wrapper.find("button.cf-add").trigger("click");
+    const row = wrapper.findAll(".cf-row")[0];
+    await row.find("input.cf-name").setValue("token");
+    await row.find("input.cf-value").setValue("t-9");
+    // 默认不保护
+    expect(
+      (row.find("input[type=checkbox]").element as HTMLInputElement).checked,
+    ).toBe(false);
+    await row.find("input[type=checkbox]").setValue(true);
+    await wrapper.find("#f-title").setValue("T");
+    await wrapper.find("button.primary").trigger("click");
+    await flushPromises();
+    expect(api.entryCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        custom_fields: [{ name: "token", value: "t-9", protected: true }],
+      }),
+    );
+    wrapper.unmount();
+  });
 });
