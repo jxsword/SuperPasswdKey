@@ -1,6 +1,6 @@
 # 16 桌面 GUI：Vue 3 + Vite 全功能界面（DR-014）
 
-- 状态：v1.5（2026-10-31，§8.4 验收清单独立化为 docs/manual/acceptance_checklist.md——GUI+CLI 双清单供逐项执行；v1.4 S1b-2b 落地；v1.3 标签全栈；v1.2 S1b-1 写路径；v1.1 §8 手工验收；v1.0 S1a 设计与 MVP 落地）
+- 状态：v1.6（2026-10-31，验收反馈轮：编辑中暂停空闲锁定（absolute 保留，§5.2 修订）+ keyfile 路径记忆与文件浏览（settings.json keyfile_path，SP-F-904 扩展）+ 保存后列表/详情即时刷新；v1.5 §8.4 清单独立化；v1.4 S1b-2b；v1.3 标签全栈；v1.2 S1b-1 写路径；v1.1 §8 手工验收；v1.0 S1a 设计与 MVP 落地）
 - 上游依赖：design_docs/15（桌面形态，托盘/会话/NM 嵌入基座）、DR-013（凭据驻留策略）、DR-012（actor 内凭据因子）、SP-F-9xx（SRS §3.9 桌面需求）
 - 范围：S1a = 设计与只读 MVP（解锁/列表/搜索/详情/TOTP/复制）；写路径（条目 CRUD/附件/TOTP 编辑）在 S1b，导入导出/注入启动器在 S1c
 
@@ -120,9 +120,11 @@ GUI 操作 ↔ Tauri command ↔ sp-kffi/Vault 调用（机密纪律：password 
 ### 5.2 自动锁与会话集成（复用 session.rs 双超时）
 
 - GUI 不新增会话语义：解锁/锁定/双超时/惰性检查全部复用 `session.rs`（DR-013 桌面口径，SP-F-902/903）。
+- **编辑中暂停空闲锁定**（v1.6，2026-10-31 验收反馈）：EntryFormModal 打开期间前端经 `set_editing(true)` 置会话编辑态——idle 超时不触发（防编辑被锁定打断丢失输入）、顶栏倒计时显示满格；**absolute 绝对上限保留**不被编辑绕过（到期仍锁，表单内容保留、重新解锁可直接再保存）。模态关闭/视图卸载 `set_editing(false)` 复位；显式锁定（lock_now）一并复位。
 - 前端每 5s 轮询 `session_status` 刷新倒计时展示（展示不构成安全边界，机密操作以后端惰性检查为准——沿用 v0.3.0 口径）。
 - 所有机密 command（entry_list/entry_get/entry_totp）在 Session 层先做惰性超时检查（`active_vault()` 语义：过期即锁库清零），锁定态返回 locked 语义供前端提示重新解锁。
 - 解锁态下用户交互（列表点击/搜索/详情查看）经 `touch` 刷新空闲计时；顶栏"锁定"= `lock_now`。
+- 解锁面板 keyfile 路径自动记忆：成功解锁后路径写入 settings.json（keyfile_path，非机密值）；启动预填（文件不存在则本次不预填、配置保留），支持系统文件浏览（`keyfile_pick` command，tauri-plugin-dialog）。
 
 ### 5.3 剪贴板策略
 
