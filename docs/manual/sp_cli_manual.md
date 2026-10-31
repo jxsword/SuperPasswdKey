@@ -853,6 +853,36 @@ printf '%s\n' "$MASTER_PW" | sp item list
 
 ---
 
+## 15. .env 工作流与注入启动（SP-F-301；2026-10-31 起 GUI 同款能力）
+
+`.env` + `sp run` 是"引用不落值"的注入工作流：`.env` 文件里写的不是机密本身，
+而是 `sp://` 引用，机密只在子进程运行期存在。
+
+**三步工作流**：
+
+```bash
+# ① 写引用文件（值不落盘，只落"引用"）
+#    app.env:
+#      GH_TOKEN=sp://github/Password
+#      API_KEY=sp://api-service/Password
+
+# ② 以注入方式启动
+sp run --env-file app.env -- your-app --serve
+
+# ③ 子进程输出中的机密默认被遮蔽（<redacted>，跨 chunk 100% 替换）
+```
+
+**要点**：
+
+- `--env-file` 解析对齐 1Password op 规则：`$VAR`/`${VAR}` 引用展开、单引号字面量、多行值；`sp://` 引用格式在解锁前校验（坏引用退出 4，不提示主密码）。
+- 受保护变量（`PATH`/`HOME`/`USER`/`TERM`/`SHELL`/`LC_*`/`XDG_*`）拒绝覆盖（SP-F-301）。
+- 两种机密通道：默认注入**子进程环境变量**；`--stdin`（POSIX）改写 NUL 分隔记录到 stdin，规避 `/proc/<pid>/environ` 读取面。
+- `sp inject`（SP-F-302）为模板渲染变体：`{{ sp://... }}` 写进任意模板，`-o` 落盘文件自动限权（含明文，用后即删）。
+- **GUI 等价能力（2026-10-31 起）**：桌面 GUI"注入启动"对话框——选条目、勾选注入字段（UserName/Password/URL/TOTP/自定义字段）、填程序路径即以 `sp run` 同语义启动（argv 直 exec 无 shell；受保护变量同样拒绝；子进程输出不遮蔽，对齐 `--no-masking` 口径）。机密仅存在于子进程环境，不落盘。
+- **GUI 导入/导出向导**同批落地：导入（.env/CSV/Bitwarden JSON/目录扫描/环境变量，两阶段扫描→确认，与 CLI `sp import` 同管道）、导出（age 加密归档，与 CLI `sp export` 同实现；明文导出仍仅限 CLI `--plaintext` 三重防护）。
+
+---
+
 ## 附录 A：全命令全参数覆盖核对表
 
 > 核对基准：`sp --help` 与全部子命令 `--help` 输出（2026-10-31，随 `sp item edit`/`--field-secret` 更新），逐项比对打勾。

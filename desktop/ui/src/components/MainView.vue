@@ -1,6 +1,5 @@
 <script setup lang="ts">
-// 解锁态主界面：搜索框 + 条目列表 + 详情侧栏。
-// S1b-1：+ 新的项目（创建表单）；编辑/删除经 DetailPanel 上抛事件后刷新列表与选中态。
+// 解锁态主界面：搜索框 + 条目列表 + 详情侧栏 + 导入/导出/注入启动（S1c）。
 import { computed, onMounted, ref } from "vue";
 import * as api from "../api";
 import type { EntrySummary } from "../api";
@@ -8,6 +7,9 @@ import SearchBox from "./SearchBox.vue";
 import EntryList from "./EntryList.vue";
 import DetailPanel from "./DetailPanel.vue";
 import EntryFormModal from "./EntryFormModal.vue";
+import ImportWizard from "./ImportWizard.vue";
+import ExportDialog from "./ExportDialog.vue";
+import LaunchDialog from "./LaunchDialog.vue";
 
 const props = defineProps<{ touch: () => void }>();
 
@@ -17,6 +19,9 @@ const loading = ref(false);
 const query = ref("");
 const selectedTitle = ref<string | null>(null);
 const showCreate = ref(false);
+const showImport = ref(false);
+const showExport = ref(false);
+const showLaunch = ref(false);
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -82,6 +87,11 @@ onMounted(loadEntries);
     <aside class="left">
       <div class="list-header">
         <button class="new-entry" @click="showCreate = true">＋ 新的项目</button>
+        <div class="tools">
+          <button class="tool" @click="showImport = true">导入</button>
+          <button class="tool" @click="showExport = true">导出</button>
+          <button class="tool" @click="showLaunch = true">注入启动</button>
+        </div>
       </div>
       <SearchBox v-model="query" />
       <div class="list-error" v-if="listError">
@@ -112,6 +122,17 @@ onMounted(loadEntries);
       mode="create"
       @saved="onCreated"
       @close="showCreate = false"
+    />
+    <ImportWizard
+      v-if="showImport"
+      @imported="loadEntries"
+      @close="showImport = false"
+    />
+    <ExportDialog v-if="showExport" @close="showExport = false" />
+    <LaunchDialog
+      v-if="showLaunch"
+      :initial-title="selectedTitle"
+      @close="showLaunch = false"
     />
   </div>
 </template>
@@ -149,6 +170,27 @@ onMounted(loadEntries);
 
 .new-entry:hover {
   background: #e0f2f1;
+}
+
+.tools {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.tool {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tool:hover {
+  border-color: var(--teal);
 }
 
 .right {

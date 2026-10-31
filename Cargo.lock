@@ -2631,7 +2631,7 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 
 [[package]]
 name = "sp-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "age",
  "anyhow",
@@ -2653,7 +2653,7 @@ dependencies = [
 
 [[package]]
 name = "sp-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "argon2",
  "secrecy",
@@ -2663,19 +2663,23 @@ dependencies = [
 
 [[package]]
 name = "sp-kdbx"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
+ "age",
  "base64 0.22.1",
  "getrandom 0.2.17",
  "keepass-ng",
+ "serde",
+ "serde_json",
  "sp-core",
  "thiserror 2.0.21",
  "zeroize",
+ "zip",
 ]
 
 [[package]]
 name = "sp-kffi"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "sp-core",
  "sp-kdbx",
@@ -2686,7 +2690,7 @@ dependencies = [
 
 [[package]]
 name = "sp-nmhost"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",

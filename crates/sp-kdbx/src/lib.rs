@@ -10,6 +10,8 @@
 //! - 仍存限制：keepass_ng 公共 API 对 set_additional_attribute 保留名拒绝逻辑
 //!   不变（9 个保留名禁作自定义字段名）。
 
+pub mod export;
+
 pub use keepass_ng as engine;
 
 use std::io::Write as _;
