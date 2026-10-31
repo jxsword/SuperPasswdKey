@@ -111,3 +111,11 @@
 - 理由: 全功能 GUI 的组件化/状态/表单效率是主因；构建链影响可控（CI 已有 pnpm 基础）；Vue 为 Tauri 官方模板一等公民，长期维护与招人成本最低。
 - 影响: desktop/ui/ 全量重写为 Vite 项目；tauri.conf.json 接 frontendDist/devUrl/beforeDev/beforeBuild；CI desktop/windows(tag) job 补 pnpm install/test；design_docs/16；SRS/追溯矩阵同步。
 - 记录时间 / 会话: 2026-10-30 / SuperPasswdKey S1a 会话（design_docs/16 撰写）
+
+## DR-015 2026-10-31 CI 分区触发：dorny/paths-filter 按变更面执行（tag 全量豁免） [状态: 生效]
+- 背景: 此前 push(main/develop/tags)+PR 均无条件跑全部七 job——纯文档/非功能性变更也触发完整 Rust/Android 构建，浪费云端资源且拉长本地开发反馈链；S0 交付说明曾因"skipped 是否改变七 job 全绿门禁语义"保守维持全量。
+- 选项与权衡: A(dorny/paths-filter 分区触发：按 rust_root/desktop/android/extension/docs 六路过滤各 job 按需执行，收益最大、复杂度中等，选定); B(workflow 级 paths-ignore 仅文档豁免：改动最小但代码小改动仍跑全部七 job，弃用——不解决主要痛点); C(两步走先 B 后 A：多一轮 CI 改造周期，弃用)。
+- 结论: changes 首 job（SHA 钉版 dorny/paths-filter v3）判定变更面，各 job 按依赖关系条件触发（windows/linux=rust_root∪workflows；desktop/deny=rust_root∪desktop∪workflows；android/android-e2e=rust_root∪android∪workflows；extension=extension∪workflows）；tag 推送（v*）无条件全量保障发布线；scripts/** 不进过滤面由 tag 构建覆盖。
+- 理由: GitHub 官方行为 skipped check 视为通过——"七 job 全绿"门禁实质不变；分区收益最大（仅 extension 改动跳 5 个 Rust job，纯文档零构建）；desktop/android 与根 crates 的 path 依赖关系已在条件中显式建模。
+- 影响: .github/workflows/ci.yml（changes job + 七 job needs/if）；门禁语义说明入 CI 注释；后续 docs PR 零构建。
+- 记录时间 / 会话: 2026-10-31 / SuperPasswdKey S1b 前置会话

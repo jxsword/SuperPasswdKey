@@ -14,7 +14,51 @@ env:
   KEEPASSXC_VERSION: "2.7.12"
 
 jobs:
+  changes:
+    # DR-015 分区触发：paths-filter 判定变更面，各 job 按需执行（tag 推送无条件全量）。
+    # skipped 的 check 被 GitHub 视为通过——"七 job 全绿"门禁语义不变。
+    # 注：scripts/**（安装器/PATH 脚本）不进过滤面——PR 门禁不覆盖，由 tag 构建全量验证。
+    runs-on: ubuntu-latest
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+      rust_root: ${{ steps.filter.outputs.rust_root }}
+      desktop: ${{ steps.filter.outputs.desktop }}
+      android: ${{ steps.filter.outputs.android }}
+      extension: ${{ steps.filter.outputs.extension }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # push 事件需 before 提交做 diff（合并提交多 parent，浅克隆不可靠）
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3（SHA 钉版）
+        id: filter
+        with:
+          filters: |
+            docs:
+              - '**/*.md'
+              - 'docs/**'
+              - 'design_docs/**'
+            rust_root:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'deny.toml'
+              - 'rust-toolchain.toml'
+            desktop:
+              - 'desktop/**'
+            android:
+              - 'android/**'
+              - 'crates/sp-kffi/**'
+              - 'crates/sp-core/**'
+              - 'crates/sp-kdbx/**'
+            extension:
+              - 'extension/**'
+            workflows:
+              - '.github/workflows/ci.yml'
+
   windows:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.rust_root == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: windows-latest
     permissions:
       contents: write  # tag 流程：gh release create/upload（draft Release，DR-007）
@@ -163,6 +207,8 @@ jobs:
           path: dist/*.zip
 
   linux:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.rust_root == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -191,6 +237,9 @@ jobs:
 
   deny:
     # cargo-deny-action 是容器 action，仅支持 Linux（首次 CI 实测教训）
+    needs: changes
+    # 扫描面 = 根 workspace + desktop 独立 manifest，两者任一变更即跑
+    if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.rust_root == 'true' || needs.changes.outputs.desktop == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -209,6 +258,9 @@ jobs:
     # 桌面壳门禁（DR-013 批次 1，任务书_step7 任务 4）：独立 workspace
     # （tauri/wry/tao 仅 MSVC 可构建，不并入根 workspace 防 linux CI 失败）
     # DR-014：GUI 前端 Vue3+Vite，cargo tauri build 前需 pnpm 构建产物（beforeBuildCommand）
+    needs: changes
+    # path 依赖 ../../crates/sp-*（rust_root）→ 桌面壳与根内核变更都需重跑
+    if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.rust_root == 'true' || needs.changes.outputs.desktop == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: windows-latest
     defaults:
       run:
@@ -271,6 +323,9 @@ jobs:
   android:
     # Android 交叉编译 + Kotlin 绑定漂移检查（DR-009；design_docs/13 §4.3）
     # ubuntu-latest 预装 Android SDK/NDK（ANDROID_HOME 已设），cargo-ndk 自动取最新 NDK
+    needs: changes
+    # sp-kffi path 依赖 sp-core/sp-kdbx（rust_root 覆盖 crates/**）
+    if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.rust_root == 'true' || needs.changes.outputs.android == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -315,6 +370,8 @@ jobs:
     # 模拟器 e2e（M1 出口报告 backlog 落地）：x86_64 KVM 模拟器跑 TestActivity 断言集
     # （FFI 面 + 首建校准链路 init_vault + 超时锁库注入 idle_timeout_ms）。
     # fixture 口令为 SRS §5 允许入仓的测试专用值，经 intent extra 传递不落盘（SP-F-804）。
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.rust_root == 'true' || needs.changes.outputs.android == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -449,6 +506,8 @@ jobs:
 
   extension:
     # 浏览器扩展构建门禁（SP-F-704/705；fuzz 不进 CI——design_docs/07）
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.extension == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     defaults:
       run:
