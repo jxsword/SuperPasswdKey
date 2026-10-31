@@ -1,6 +1,6 @@
 # STAGE-PLAN — 分阶段执行计划（v0.4.x 路线）
 
-> **使用方式**：每个阶段 = 一个新会话。新会话第一件事：读 [HANDOFF-2026-10-30.md](HANDOFF-2026-10-30.md) + 本文档对应阶段节，然后**复制该阶段的"新会话提示词"**开始执行。阶段完成：勾选本文件进度标记 + 在 docs/plans/ 追加该阶段交付说明（作为下阶段输入）。
+> **使用方式**：每个阶段 = 一个新会话。新会话第一件事：读 [HANDOFF-2026-10-31.md](HANDOFF-2026-10-31.md)（最新版）+ 本文档对应阶段节，然后**复制该阶段的"新会话提示词"**开始执行。阶段完成：勾选本文件进度标记 + 在 docs/plans/ 追加该阶段交付说明（作为下阶段输入）。
 >
 > 纪律（全阶段通用）：Git Flow（feature/fix/docs/* → PR → CI 七 job 全绿 → 合并 develop）；禁止直推 develop/main；机密/口令不经 Agent；源码/示例/测试零真实凭据字面量；Mimosa 拦截按 HANDOFF §3.7 处置。
 
@@ -11,7 +11,8 @@
 | #1 | **S0 卫生与同步** | push develop、.gitignore 微调、AGENTS.md 扩充、CI 缓存 6 项、develop→main 合并 | 同步的 main/develop + 扩充的 AGENTS.md + 缓存 CI | ✅ 全部完成（交付说明：[S0-DELIVERY-2026-10-30.md](S0-DELIVERY-2026-10-30.md)） |
 | #2 | **S1a GUI 设计+MVP** | design_docs/16（Vue3+Vite/DR-014/信息架构/安全边界）+ 脚手架 + 解锁集成/列表/搜索/详情 | design_docs/16 + GUI MVP | ✅ 全部完成（交付说明：[S1a-DELIVERY-2026-10-30.md](S1a-DELIVERY-2026-10-30.md)） |
 | #3 | **S1b GUI 写路径** | **拆两批**：S1b-1=详情交互增强（显示/放大显示）+ 条目创建/编辑/删除（custom_fields 保真）；S1b-2=标签全栈（KDBX4 原生 Tags，CLI+GUI）→ 附件 add/list/get → 自定义字段编辑 UI | GUI 写路径完整 | ✅ 全部完成（交付说明：[S1b-DELIVERY-2026-10-31.md](S1b-DELIVERY-2026-10-31.md)） |
-| #4 | **S3 Mimosa 基线审计** | 全仓审计（CLI+扩展+桌面+完整 GUI 含写路径）+ 修复 | 审计报告 + 修复 | ☐ |
+| #3.5 | **验收测试与反馈修复（插入轮）** | 验收清单 v1.2 入库（GUI 28 项 + CLI 22 项 + 注入 15 项）；反馈修复：GUI 编辑防锁/keyfile 路径记忆+浏览/保存即时刷新；CLI 参数校验前置（item create/read/clip/run URI）；同名撞车注记；CI 分区触发（DR-015） | 验收清单 v1.2 + 修复全合并 | ✅ 完成（PR #57–#69；状态见 [HANDOFF-2026-10-31.md](HANDOFF-2026-10-31.md) §1 验收状态行；**待用户回归**：GUI B 组剩余项 + A10.4 LLM 实战） |
+| #4 | **S3 Mimosa 基线审计** | 全仓审计（CLI+扩展+桌面+**完整 GUI 含写路径/标签/附件** + 验收轮修复）+ 修复 | 审计报告 + 修复 | ☐ |
 | #5 | **S1c 收尾+发布** | 导入导出向导/注入启动器/.env 工作流文档 + 发布前 Mimosa 复审 + **v0.4.0** 发版 | v0.4.0 | ☐ |
 | #6 | **S4 Android 批次 2** | 真机前置 + 任务书先行 | Android Keystore/生物/每 boot 主密码 | ☐ |
 | — | Backlog（不排期） | P2 协议加密、密钥复用开库、1pux、指纹去重三级、ssh-agent/shell 包装、服务器轨 | — | — |
@@ -76,18 +77,18 @@
 
 ---
 
-## S3 Mimosa 基线审计（会话 #3）
+## S3 Mimosa 基线审计（会话 #4）
 
-**目标**：GUI MVP 落地后的干净基线上，做一次完整安全审计并处置全部发现。
+**目标**：完整 GUI（含写路径/标签/附件）+ 验收轮修复落地后的干净基线上，做一次完整安全审计并处置全部发现。
 
-**任务**：运行 Mimosa 完整审计（覆盖 CLI/扩展/桌面/GUI MVP）→ 逐项处置（修复 / 如实记录豁免理由）→ 复审 → 审计报告入库 docs/reviews/。
+**任务**：运行 Mimosa 完整审计（覆盖 CLI/扩展/桌面/**完整 GUI 含写路径**、sp-core::fsperms、kffi Rust-only 面等新增面）→ 逐项处置（修复 / 如实记录豁免理由）→ 复审 → 审计报告入库 docs/reviews/。
 
 **验收**：审计结论全部闭环；新增 HIGH/CRITICAL 发现零遗留或带豁免理由。
 
 **新会话提示词**：
 
 ```text
-读取 docs/plans/HANDOFF-2026-10-30.md 与 docs/plans/STAGE-PLAN.md（§S3）作为上下文，执行 Mimosa 完整安全审计（/mimosa-security-scan，覆盖 CLI/扩展/桌面/GUI MVP 全部代码与配置）：逐项处置发现（修复或带理由豁免），审计报告与处置记录入库 docs/reviews/，CI 七 job 全绿后经 PR 合并 develop。注意 HANDOFF §3.7 的 Mimosa 拦截处置约定。
+读取 docs/plans/HANDOFF-2026-10-31.md 与 docs/plans/STAGE-PLAN.md（§S3）作为上下文，执行 Mimosa 完整安全审计（/mimosa-security-scan，覆盖 CLI/扩展/桌面/完整 GUI 含写路径/标签/附件全部代码与配置，重点新增面：desktop/ui 前端、sp-kffi Rust-only 面（find_entry_full/delete_entry/list_attachments）、sp-core::fsperms、sp run 注入路径）：逐项处置发现（修复或带理由豁免），审计报告与处置记录入库 docs/reviews/，CI 七 job 全绿后经 PR 合并 develop。注意 HANDOFF §3 坑位清单的 Mimosa 拦截面（cp/sed/git add 目录均拦，用 Write/Edit + 显式路径）。
 ```
 
 ---
@@ -108,12 +109,12 @@
 
 ## S1c 收尾 + 发布（会话 #5）
 
-**任务**：导入/导出 GUI 向导（复用 CLI import/export 语义与三重防护）、注入启动器（从 GUI 以 `sp run` 语义启动应用）、.env 工作流使用文档；v0.4.0 发布前 Mimosa 增量复审；版本 bump 0.4.0 + tag → draft Release → 维护者签名 → 发布。
+**任务**：导入/导出 GUI 向导（复用 CLI import/export 语义与三重防护）、注入启动器（从 GUI 以 `sp run` 语义启动应用）、.env 工作流使用文档；v0.4.0 发布前 Mimosa 增量复审；版本统一 bump 0.4.0 + **develop→main PR 同步**（main 自 v0.3.0 后未合入 S1a/S1b/验收轮）→ 从 main 打 tag → draft Release → 维护者签名 → 发布。
 
 **新会话提示词**：
 
 ```text
-读取 docs/plans/HANDOFF-2026-10-30.md 与 docs/plans/STAGE-PLAN.md（§S1c）作为上下文，执行 S1c：① 导入/导出 GUI 向导（对齐 CLI import/export 语义与三重防护）；② 注入启动器（从 GUI 以 sp run 语义启动应用，秘密不落盘）；③ .env 工作流使用文档（手册 + GUI 内帮助）；④ v0.4.0 发布前 Mimosa 增量复审；⑤ 版本统一 bump 0.4.0、tag 触发 draft Release、提醒维护者签名发布。纪律同全阶段。完成后更新 STAGE-PLAN 进度标记。
+读取 docs/plans/HANDOFF-2026-10-31.md 与 docs/plans/STAGE-PLAN.md（§S1c）作为上下文，执行 S1c：① 导入/导出 GUI 向导（对齐 CLI import/export 语义与三重防护）；② 注入启动器（从 GUI 以 sp run 语义启动应用，秘密不落盘）；③ .env 工作流使用文档（手册 + GUI 内帮助）；④ v0.4.0 发布前 Mimosa 增量复审；⑤ 版本统一 bump 0.4.0、develop→main PR 同步后从 main 打 tag 触发 draft Release、提醒维护者签名发布。纪律同全阶段。完成后更新 STAGE-PLAN 进度标记。
 ```
 
 ---
@@ -173,6 +174,7 @@
 - [x] S0 卫生与同步（会话 #1）
 - [x] S1a GUI 设计+MVP（会话 #2）
 - [x] S1b GUI 写路径（会话 #3；S1b-1 + S1b-2（标签/附件/自定义字段 UI）全部完成）
+- [x] 验收测试与反馈修复（插入轮，2026-10-31；清单 v1.2 + 修复 PR #57–#69；GUI B 组剩余项与 A10.4 LLM 实战待用户回归）
 - [ ] S3 Mimosa 基线审计（会话 #4，审计范围含完整 GUI 写路径）
-- [ ] S1c 收尾+v0.4.0 发布（会话 #5）
+- [ ] S1c 收尾+v0.4.0 发布（会话 #5；发布前需 develop→main PR 同步）
 - [ ] S4 Android 批次 2（会话 #6，真机前置）
