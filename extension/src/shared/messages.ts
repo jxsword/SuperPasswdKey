@@ -92,7 +92,9 @@ export type PopupMessage =
   | { type: "unlock"; password: string }
   | { type: "lock" }
   | { type: "logins" }
-  | { type: "fill"; id: string; username?: string | null; withTotp: boolean };
+  // url = 本次所选条目的匹配 url（LoginMatch.url 透传；S3 审计：fill 前
+  // SW 用它与目标 tab 当前 URL 复核 host，防 popup 打开期间页面重定向错填）
+  | { type: "fill"; id: string; username?: string | null; withTotp: boolean; url?: string | null };
 
 export interface StatusInfo {
   connected: boolean;

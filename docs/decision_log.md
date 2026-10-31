@@ -103,3 +103,35 @@
 - 理由: 用户需求逐字映射；豁免最小化+默认关闭+明示确认+可逆（关即清）；行业对标（Bitwarden/KeePassDX 均为可选开启+Keystore 包裹+生物替代）且本项目每 boot 策略更严；批次拆分尊重"优先 Windows"，共享论证避免边界分裂。
 - 影响: 批次1(desktop/ 新 Tauri 应用: 托盘/解锁窗/会话双超时/HKCU 自启、sp-nmhost NM 协议库化嵌入、design_docs/15、SRS SP-F-9xx)；批次2(sp-kffi Keystore 包裹接口、Android 解锁策略、design_docs/14 v1.3)。桌面单进程架构（Tauri 壳内嵌 NM host，免跨进程会话共享，收敛 DR-006 遗留跨进程缓存 backlog）随任务书_step7 设计闸门确认。
 - 记录时间 / 会话: 2026-10-29 / SuperPasswdKey 步骤 6 会话（保存场景落地 + step7 规划）
+
+## DR-014 2026-10-30 桌面 GUI 前端选型：Vue 3 + Vite（修订 design_docs/15"零 Node"闸门） [状态: 生效]
+- 背景: design_docs/15 §3 将 desktop/ui/ 定为"静态零 Node 依赖"前端（v0.3.0 已交付解锁窗+设置面板）。S1a 起桌面壳从"托盘+解锁"扩展为全功能 GUI（对标 1Password 桌面端）：大条目列表/即时搜索/详情侧栏/TOTP 轮询/复制按钮，S1b/S1c 还要叠加条目编辑器/导入导出向导/注入启动器——手写 vanilla JS 维护状态密集界面成本显著上升。
+- 选项与权衡: A(Vue3+Vite：组件化+响应式状态天然匹配列表/搜索/详情/轮询；SFC 按视图拆分；官方 Tauri 模板一等支持；代价=桌面 workspace 引入 pnpm 构建链、CI 补 pnpm install，选定); B(Vanilla JS 渐进增强：零构建链但状态/过滤/轮询/表单校验全手写、S1b 成本高、长期维护劣化，弃用); C(Svelte+Vite：编译期框架运行时更小但团队熟悉度低、生态/模板成熟度逊于 Vue，弃用)。
+- 结论: Vue 3 + Vite + TypeScript 替换 desktop/ui/ 静态页。安全面不变（机密不进前端存储，SP-F-707 口径延续）；运行期零 Node（Vite 仅构建期，产物静态打包进 NSIS，CSP default-src 'self' 不变）。
+- 理由: 全功能 GUI 的组件化/状态/表单效率是主因；构建链影响可控（CI 已有 pnpm 基础）；Vue 为 Tauri 官方模板一等公民，长期维护与招人成本最低。
+- 影响: desktop/ui/ 全量重写为 Vite 项目；tauri.conf.json 接 frontendDist/devUrl/beforeDev/beforeBuild；CI desktop/windows(tag) job 补 pnpm install/test；design_docs/16；SRS/追溯矩阵同步。
+- 记录时间 / 会话: 2026-10-30 / SuperPasswdKey S1a 会话（design_docs/16 撰写）
+
+## DR-015 2026-10-31 CI 分区触发：dorny/paths-filter 按变更面执行（tag 全量豁免） [状态: 生效]
+- 背景: 此前 push(main/develop/tags)+PR 均无条件跑全部七 job——纯文档/非功能性变更也触发完整 Rust/Android 构建，浪费云端资源且拉长本地开发反馈链；S0 交付说明曾因"skipped 是否改变七 job 全绿门禁语义"保守维持全量。
+- 选项与权衡: A(dorny/paths-filter 分区触发：按 rust_root/desktop/android/extension/docs 六路过滤各 job 按需执行，收益最大、复杂度中等，选定); B(workflow 级 paths-ignore 仅文档豁免：改动最小但代码小改动仍跑全部七 job，弃用——不解决主要痛点); C(两步走先 B 后 A：多一轮 CI 改造周期，弃用)。
+- 结论: changes 首 job（SHA 钉版 dorny/paths-filter v3）判定变更面，各 job 按依赖关系条件触发（windows/linux=rust_root∪workflows；desktop/deny=rust_root∪desktop∪workflows；android/android-e2e=rust_root∪android∪workflows；extension=extension∪workflows）；tag 推送（v*）无条件全量保障发布线；scripts/** 不进过滤面由 tag 构建覆盖。
+- 理由: GitHub 官方行为 skipped check 视为通过——"七 job 全绿"门禁实质不变；分区收益最大（仅 extension 改动跳 5 个 Rust job，纯文档零构建）；desktop/android 与根 crates 的 path 依赖关系已在条件中显式建模。
+- 影响: .github/workflows/ci.yml（changes job + 七 job needs/if）；门禁语义说明入 CI 注释；后续 docs PR 零构建。
+- 记录时间 / 会话: 2026-10-31 / SuperPasswdKey S1b 前置会话
+
+## DR-016 2026-10-31 同名条目策略：允许同名 + `--index` 组内序号寻址（CLI 补齐 item edit 同批） [状态: 生效]
+- 背景: CLI item 族原无 edit 入口（SP-F-102 描述含 edit、追溯矩阵 SP-F-103 标"CLI 入口缺"）；同名条目仅有"首个命中遮蔽"行为（手册注记、无测试锚定）；HANDOFF-2026-10-31 §5 已把"同名条目多实例寻址（ID/序号）"列为 CLI backlog。用户于 S1c 前插入需求：核实并补齐 edit、明确同名策略。
+- 选项与权衡: A(允许同名 + `--index` 组内序号寻址：落地 backlog 既定方向，对齐 1Password/KeePassXC 生态，GUI SP-F-909"同名允许"/扩展保存 `host (username) N` 消歧/同站多账号导入数据三面零破坏，选定); B(禁止同名：创建/导入/改名三处查重退 4——接口最简但与上述三面冲突属行为倒退，需连带改 GUI/扩展/导入并重跑验收，弃用)。
+- 结论: sp-kdbx 新增 find/edit/delete/totp 的 `_at(index)` 变体（None=首个=现状锚定，原函数委托零破坏，GUI/NM/Android 不动）；CLI `item get/edit/delete/read/clip` 接 `--index`、`item list` 加 `--enumerate`；新增 `sp item edit`（patch 语义、校验前置退 4、`--rename/--field/--remove-field/--tag` 等）；创建/导入不查重维持。
+- 理由: 生态惯例 + 三面现状零破坏 + backlog 既定方向；序号漂移（删除同名条目后前移）以文档口径约束（手册 §4.5"删前重查"惯例）；UUID 寻址留后续。
+- 影响: crates/sp-kdbx、sp-cli（main/commands，纯函数 validate/apply_edit_patch 单测）、sp-core（RESERVED_FIELD_NAMES 上移公开）；手册 §4.5 新节 + §6/§7/§12/§14/附录A；SRS V1.10；追溯矩阵 SP-F-102/103；验收清单 A2b 组；进程级 e2e 因 Mimosa 对测试内子进程构造的模式误报（3 种合规形态均拦）按 attachment_e2e 先例交维护者手动落盘（内容随 PR 交付）。
+- 记录时间 / 会话: 2026-10-31 / SuperPasswdKey S1c 前插入批（item edit + 同名寻址）
+
+## DR-017 2026-10-31 受保护自定义字段：keepass-ng vendored 补丁（DR-005 v0.1 限制闭环） [状态: 生效]
+- 背景: 自定义字段自 v0.1 起仅整库加密无字段级二次加密（DR-005 记录"keepass_ng 公共 API 仅支持未保护自定义字段"）——仅 Password/otp 走 KDBX4 ProtectedValue（ChaCha20）。核实（keepass-ng 0.11.12 源码）：非格式限制，是 crate API 缺口——`set_protected_field_pair` 为 pub(crate)、`additional_attributes()` 读侧丢弃保护位；上游 0.11.12 即最新无修复。用户 S1c 前插入需求（1Password 对标：自定义字段支持类型与受保护）。
+- 选项与权衡: A(vendored 补丁 keepass-ng：vendor/ + [patch.crates-io]，公开受保护写/读 API，格式层零改动，KeePassXC 掩码互认，选定); B(应用层自加密：值自加密后 base64 存未保护属性——不动依赖但 KeePassXC 看到密文破坏 DR-003 互操作卖点且密钥管理自担，弃用); C(等上游——0.11.12 即最新无可等，弃用)。1Password 式类型化字段（FieldKind）经 entry custom_data 承载、涉 Kotlin 绑定重生，排 S4 之后另批。
+- 结论: vendor/keepass-ng（0.11.12 发布包解包，checksum 一致，改动清单见 VENDOR-NOTES.md）新增 `set_additional_attribute_value(Value)` 与 `additional_attributes_typed()`；sp-kdbx apply_model/model_from_entry 按 protected 位读写（去硬编码 false）；CLI `--field-secret`（create/edit，同名覆盖 --field 保护位）、item get 全量输出对受保护字段掩码；GUI 自定义字段行加"保护"勾选；roundtrip 新增 keepassxc-cli 掩码/解掩码互操作用例（注：KeePassXC `show -a` 显式点名即使无 -s 也输出明文，掩码仅默认摘要/--all 列表——上游 Show.cpp 设计）。
+- 理由: 互操作零破坏 + 管道已通（sp-core/kffi/DTO 的 protected 位早已存在，仅存储两端硬编码）+ 改动面最小（两个 API 方法）；vendored 代价以 VENDOR-NOTES + roundtrip 护栏管理，上游公开等价 API 后可回归 crates.io。
+- 影响: vendor/keepass-ng（新增）、根 Cargo.toml（[patch.crates-io]）、crates/sp-kdbx、sp-cli、desktop/ui（EntryFormModal）；手册 §4.1/§4.5/§4.2/§14.5/附录A；SRS V1.11；追溯矩阵 SP-F-102；验收清单 A2c 组；Kotlin 绑定零漂移（FfiCustomField.protected 既有字段）。
+- 记录时间 / 会话: 2026-10-31 / SuperPasswdKey S1c 前插入批（受保护自定义字段）

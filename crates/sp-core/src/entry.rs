@@ -24,12 +24,34 @@ pub struct EntryModel {
     pub custom_fields: Vec<CustomField>,
     /// KeePass "otp" 属性（otpauth:// URL 格式，KeePassXC 兼容——DR-005）
     pub otp: Option<String>,
+    /// 标签分类（S1b-2，SP-F-108）：KDBX4 原生 Tags 字符串列表，KeePassXC 互认；
+    /// 校验见 validate（非空、trim 后不接收空白标签；存储顺序即写入顺序）
+    pub tags: Vec<String>,
 }
+
+/// KDBX 标准字段名不可作为自定义字段（互操作保护；validate 与 CLI/GUI
+/// 预校验同源——S1c 插入批：随 `sp item edit` 上移公开）
+pub const RESERVED_FIELD_NAMES: [&str; 9] = [
+    "Password",
+    "BinaryData",
+    "otp",
+    "Title",
+    "URL",
+    "UserName",
+    "Notes",
+    "Additional",
+    "BinaryDesc",
+];
 
 impl EntryModel {
     pub fn validate(&self) -> Result<(), SpError> {
         if self.title.trim().is_empty() {
             return Err(SpError::Parameter("entry title must not be empty".into()));
+        }
+        for t in &self.tags {
+            if t.trim().is_empty() {
+                return Err(SpError::Parameter("tag must not be empty or blank".into()));
+            }
         }
         for f in &self.custom_fields {
             if f.name.trim().is_empty() {
@@ -37,19 +59,7 @@ impl EntryModel {
                     "custom field name must not be empty".into(),
                 ));
             }
-            // KDBX 标准字段名不可作为自定义字段（互操作保护）
-            const RESERVED: [&str; 9] = [
-                "Password",
-                "BinaryData",
-                "otp",
-                "Title",
-                "URL",
-                "UserName",
-                "Notes",
-                "Additional",
-                "BinaryDesc",
-            ];
-            if RESERVED.contains(&f.name.as_str()) {
+            if RESERVED_FIELD_NAMES.contains(&f.name.as_str()) {
                 return Err(SpError::Parameter(format!(
                     "custom field name '{}' is reserved",
                     f.name

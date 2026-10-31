@@ -19,6 +19,7 @@ fn draft(title: &str, password: &str) -> FfiEntryDraft {
         notes: None,
         otp: None,
         custom_fields: vec![],
+        tags: vec![],
     }
 }
 
@@ -426,4 +427,148 @@ fn calibrate_kdf_stays_in_dr010_bounds() {
     assert_eq!(lo.parallelism, 4);
     let hi = calibrate_kdf(u32::MAX).expect("calibrate huge");
     assert_eq!(hi.iterations, 8);
+}
+
+#[test]
+fn find_entry_full_returns_custom_fields_rust_only_surface() {
+    // FfiEntry 读回面不含 custom_fields（v0.1 限制）；find_entry_full（仅 Rust 面）
+    // 必须完整读回——desktop GUI 编辑保真的前提（design_docs/16 v1.2）
+    let f = make_fixture("full", FfiKdfParams::default(), None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db");
+
+    let mut d = draft("Full Entry", "pass-1");
+    d.custom_fields = vec![
+        FfiCustomField {
+            name: "api_key".into(),
+            value: "k-123".into(),
+            protected: true,
+        },
+        FfiCustomField {
+            name: "region".into(),
+            value: "cn-north".into(),
+            protected: false,
+        },
+    ];
+    vault.add_entry(d).expect("add_entry");
+
+    let full = vault.find_entry_full("Full Entry".into()).expect("full");
+    // 注意：keepass-ng additional_attributes 为 HashMap 存储，读回顺序跨平台不确定——
+    // 断言必须按名查找，不得依赖索引顺序（2026-10-31 linux CI 实测教训）
+    assert_eq!(full.custom_fields.len(), 2);
+    let api_key = full
+        .custom_fields
+        .iter()
+        .find(|c| c.name == "api_key")
+        .expect("api_key present");
+    assert_eq!(api_key.value, "k-123");
+    // protected 标记自 S1d-1/DR-017 起持久化（keepass-ng vendored 补丁：字段级
+    // ChaCha20 ProtectedValue，与 Password/otp 同机制）
+    assert!(api_key.protected);
+    assert!(full.custom_fields.iter().any(|c| c.name == "region"));
+
+    // 对照：旧 FfiEntry 面确实不含 custom_fields（回归口径不破）
+    let plain = vault.find_entry("Full Entry".into()).expect("plain");
+    assert_eq!(plain.password.as_deref(), Some("pass-1"));
+
+    // 编辑保真：full 读回 → 以原 custom_fields 回写 → 重开仍在（不被清空）
+    let draft2 = FfiEntryDraft {
+        title: "Full Entry".into(),
+        username: Some("renamed-user".into()),
+        password: Some("pass-2".into()),
+        url: None,
+        notes: None,
+        otp: None,
+        custom_fields: full.custom_fields.clone(),
+        tags: vec!["infra".into(), "prod".into()],
+    };
+    vault
+        .edit_entry("Full Entry".into(), draft2)
+        .expect("edit_entry");
+    vault
+        .save(
+            f.db_path.to_str().unwrap().into(),
+            f.db_password.clone(),
+            None,
+        )
+        .expect("save");
+    drop(vault);
+
+    let vault2 = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("reopen");
+    let after = vault2.find_entry_full("Full Entry".into()).expect("after");
+    assert_eq!(after.password.as_deref(), Some("pass-2"));
+    // 标签 roundtrip（SP-F-108：编辑写入的 tags 重开仍在）
+    assert_eq!(after.tags, vec!["infra".to_string(), "prod".to_string()]);
+    assert_eq!(
+        after
+            .custom_fields
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from(["api_key", "region"]),
+        "custom fields must survive edit"
+    );
+}
+
+#[test]
+fn delete_entry_rust_only_surface_removes_entry() {
+    let f = make_fixture("delete", FfiKdfParams::default(), None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db");
+    vault.add_entry(draft("Doomed", "p")).expect("add");
+
+    vault.delete_entry("Doomed".into()).expect("delete_entry");
+    match vault.find_entry("Doomed".into()) {
+        Err(FfiError::NotFound { .. }) => {}
+        other => panic!("expected NotFound after delete, got {other:?}"),
+    }
+    // 不存在的条目删除 → NotFound
+    match vault.delete_entry("Nope".into()) {
+        Err(FfiError::NotFound { .. }) => {}
+        other => panic!("expected NotFound for missing entry, got {other:?}"),
+    }
+}
+
+#[test]
+fn list_attachments_rust_only_surface() {
+    // GUI 附件管理（S1b-2b）：list_attachments 列名（仅 Rust 面）
+    let f = make_fixture("attlist", FfiKdfParams::default(), None);
+    let vault = open_db(
+        f.db_path.to_str().unwrap().into(),
+        f.db_password.clone(),
+        None,
+    )
+    .expect("open_db");
+    vault.add_entry(draft("WithFiles", "p")).expect("add");
+    vault
+        .add_attachment("WithFiles".into(), "a.txt".into(), b"alpha".to_vec())
+        .expect("add att 1");
+    vault
+        .add_attachment("WithFiles".into(), "b.bin".into(), vec![1, 2, 3])
+        .expect("add att 2");
+
+    let mut names = vault
+        .list_attachments("WithFiles".into())
+        .expect("list_attachments");
+    names.sort();
+    assert_eq!(names, vec!["a.txt".to_string(), "b.bin".to_string()]);
+    // 无附件条目 → 空表
+    vault.add_entry(draft("NoFiles", "p")).expect("add 2");
+    assert!(vault
+        .list_attachments("NoFiles".into())
+        .expect("empty list")
+        .is_empty());
 }

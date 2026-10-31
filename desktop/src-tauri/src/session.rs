@@ -12,6 +12,8 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
+use zeroize::Zeroizing;
+
 use sp_kffi::Vault;
 
 /// 非机密设置（任务 2 落 %APPDATA% 持久化；脚手架期用默认值）
@@ -41,6 +43,10 @@ pub struct Session {
     unlocked_at: Option<Instant>,
     last_active: Option<Instant>,
     settings: Settings,
+    /// 编辑中（2026-10-31 验收反馈）：EntryFormModal 打开期间置 true——暂停 idle
+    /// 超时（防编辑被空闲锁定打断丢失输入）；absolute 超时不受影响（绝对上限是
+    /// 安全底线）。模态关闭/视图卸载必须复位 false（前端 onUnmounted）。
+    editing: bool,
 }
 
 /// 给前端的会话状态（不含任何机密）
@@ -62,6 +68,16 @@ impl Session {
             unlocked_at: None,
             last_active: None,
             settings,
+            editing: false,
+        }
+    }
+
+    /// 编辑态开关（EntryFormModal 打开/关闭时由前端调用）。
+    pub fn set_editing(&mut self, active: bool) {
+        self.editing = active;
+        // 打开编辑即视为一次活动（idle 计时从此时重算，关闭后按正常空闲逻辑走）
+        if active && self.vault.is_some() {
+            self.last_active = Some(Instant::now());
         }
     }
 
@@ -82,7 +98,8 @@ impl Session {
         let Some(t) = self.last_active else {
             return false;
         };
-        let idle_hit = t.elapsed().as_millis() as u64 >= self.settings.idle_ms;
+        // 编辑中暂停 idle 超时（absolute 照常判定——绝对上限不因编辑而绕过）
+        let idle_hit = !self.editing && t.elapsed().as_millis() as u64 >= self.settings.idle_ms;
         let absolute_hit = self
             .unlocked_at
             .map(|u| u.elapsed().as_millis() as u64 >= self.settings.absolute_ms)
@@ -91,8 +108,7 @@ impl Session {
     }
 
     /// 机密操作前置：惰性超时检查（过期即锁库清零），返回可用 Vault。
-    /// 脚手架期仅 status() 消费；任务 3 NM host 嵌入后供条目操作命令使用。
-    #[allow(dead_code)]
+    /// GUI 条目操作（entry_list/entry_get/entry_totp）与 NM 适配器共用此语义链路。
     pub fn active_vault(&mut self) -> Option<&Vault> {
         if self.vault.is_some() && self.expired() {
             self.lock_now();
@@ -143,6 +159,8 @@ impl Session {
         self.db_path = None;
         self.unlocked_at = None;
         self.last_active = None;
+        // 锁定即退出编辑态（前端模态卸载时还会 set_editing(false)，幂等）
+        self.editing = false;
     }
 
     pub fn status(&mut self) -> SessionStatus {
@@ -153,14 +171,18 @@ impl Session {
             .db_path
             .clone()
             .unwrap_or_else(Self::default_vault_path);
-        let idle_left = self
-            .last_active
-            .map(|t| {
-                self.settings
-                    .idle_ms
-                    .saturating_sub(t.elapsed().as_millis() as u64)
-            })
-            .unwrap_or(0);
+        // 编辑中 idle 不触发锁定——展示同步为满值（避免顶栏倒计时归零却不锁的矛盾观感）
+        let idle_left = if self.editing && self.vault.is_some() {
+            self.settings.idle_ms
+        } else {
+            self.last_active
+                .map(|t| {
+                    self.settings
+                        .idle_ms
+                        .saturating_sub(t.elapsed().as_millis() as u64)
+                })
+                .unwrap_or(0)
+        };
         let abs_left = self
             .unlocked_at
             .map(|t| {
@@ -177,6 +199,361 @@ impl Session {
             vault_exists: path.exists(),
         }
     }
+
+    /// 条目摘要列表（GUI entry_list；惰性超时检查，过期即锁库清零）。
+    pub fn entry_list(&mut self) -> Result<Vec<EntrySummaryDto>, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        v.list_entry_summaries()
+            .map(|s| s.into_iter().map(EntrySummaryDto::from).collect())
+            .map_err(|e| describe(&e))
+    }
+
+    /// 条目详情（GUI entry_get；含密码与 custom_fields——仅详情视图瞬态展示，不落前端存储）。
+    /// 经 find_entry_full 完整读回：编辑保真前提（旧 FfiEntry 面会丢 custom_fields）。
+    pub fn entry_get(&mut self, title: &str) -> Result<EntryDetailDto, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        v.find_entry_full(title.to_string())
+            .map(EntryDetailDto::from)
+            .map_err(|e| describe(&e))
+    }
+
+    /// 条目当前 TOTP 码（GUI entry_totp；RFC 6238 本地生成，SP-F-601 单源）。
+    pub fn entry_totp(&mut self, title: &str) -> Result<String, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        v.entry_totp_now(title.to_string())
+            .map_err(|e| describe(&e))
+    }
+
+    /// 新建条目（GUI entry_create；复用 Vault::add_entry + save_session 零凭据保存，
+    /// DR-012 A1 同源；同名允许——对齐 CLI item create 口径，靠列表/搜索区分）。
+    pub fn entry_create(&mut self, draft: EntryDraftDto) -> Result<(), String> {
+        let path = self.session_db_path()?;
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        v.add_entry(draft.into_ffi()).map_err(|e| describe(&e))?;
+        v.save_session(path).map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(())
+    }
+
+    /// 编辑条目（GUI entry_edit；复用 Vault::edit_entry——旧快照进 history，
+    /// SP-F-103 语义单源；按 old_title 定位，标题可经 draft.title 改写）。
+    pub fn entry_edit(&mut self, old_title: &str, draft: EntryDraftDto) -> Result<(), String> {
+        let path = self.session_db_path()?;
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        v.edit_entry(old_title.to_string(), draft.into_ffi())
+            .map_err(|e| describe(&e))?;
+        v.save_session(path).map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(())
+    }
+
+    /// 删除条目（GUI entry_delete；复用 Vault::delete_entry + save_session）。
+    pub fn entry_delete(&mut self, title: &str) -> Result<(), String> {
+        let path = self.session_db_path()?;
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        v.delete_entry(title.to_string())
+            .map_err(|e| describe(&e))?;
+        v.save_session(path).map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(())
+    }
+
+    /// 会话库路径（解锁时记录；save_session 的落盘目标单一来源）
+    fn session_db_path(&self) -> Result<String, String> {
+        self.db_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())
+    }
+
+    /// 列条目附件名（GUI attachment_list；S1b-2b）
+    pub fn attachment_list(&mut self, title: &str) -> Result<Vec<String>, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        let names = v
+            .list_attachments(title.to_string())
+            .map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(names)
+    }
+
+    /// 添加附件（GUI attachment_add；同名覆盖语义 = sp_kdbx::add_attachment）。
+    pub fn attachment_add(&mut self, title: &str, name: &str, data: Vec<u8>) -> Result<(), String> {
+        let path = self.session_db_path()?;
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        v.add_attachment(title.to_string(), name.to_string(), data)
+            .map_err(|e| describe(&e))?;
+        v.save_session(path).map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(())
+    }
+
+    /// 读附件字节（GUI 下载用；落盘由 command 层完成并做限权收敛）
+    pub fn attachment_get(&mut self, title: &str, name: &str) -> Result<Vec<u8>, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        let data = v
+            .get_attachment(title.to_string(), name.to_string())
+            .map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(data)
+    }
+
+    // ---------- S1c：导入 / 导出 / 注入启动（design_docs/16 §4 增补） ----------
+
+    /// 导入提交（解析管道在 command 层复用 sp-cli importer 单源；写路径经本会话
+    /// actor 逐条 add_entry + 单次 save_session）。中途失败（候选未过 validate）
+    /// 时返回错误、不调用 save——但已入 actor 内存的条目会随后续任意保存一并
+    /// 落盘（候选均由导入器按模板生成，实际失败面极小；与 CLI import 的
+    /// "内存构建、末端落盘"语义一致）。
+    pub fn import_commit(&mut self, models: Vec<sp_core::EntryModel>) -> Result<usize, String> {
+        let path = self.session_db_path()?;
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        for m in &models {
+            v.add_entry(model_to_draft(m.clone()))
+                .map_err(|e| describe(&e))?;
+        }
+        v.save_session(path).map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(models.len())
+    }
+
+    /// 导出加密归档（S1c：经 kffi actor 会话凭据零凭据入参，DR-012 A1 同源；
+    /// 口令由 GUI 对话框两遍输入后合一传入，不落持久层）
+    pub fn export_archive(
+        &mut self,
+        path: &str,
+        passphrase: &str,
+    ) -> Result<ExportSummaryDto, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        let s = v
+            .export_encrypted(path.to_string(), passphrase.to_string())
+            .map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(ExportSummaryDto {
+            entries: s.entries,
+            attachments: s.attachments,
+            history_total: s.history_total,
+            warnings: s.warnings,
+        })
+    }
+
+    /// 注入启动（S1c：sp run 语义 GUI 化——进程生成经 sp-cli::spawner 单源
+    /// （F8 唯一进程生成点，argv 直 exec 无 shell，design_docs/04）；env 值从
+    /// 本会话条目解析、键经 posix_name 净化、受保护变量拒绝（SP-F-301）；子进程
+    /// stdio 继承、无遮蔽（对齐 sp run --no-masking 的文档口径）；秘密仅存在于
+    /// 子进程环境，不落盘）
+    pub fn launch_with_env(
+        &mut self,
+        program: &str,
+        args: &[String],
+        title: &str,
+        fields: &[String],
+    ) -> Result<u32, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        let detail = v
+            .find_entry_full(title.to_string())
+            .map_err(|e| describe(&e))?;
+        let mut envs: Vec<(String, Zeroizing<String>)> = Vec::new();
+        for field in fields {
+            let value = match field.as_str() {
+                "UserName" => detail.username.clone().map(Zeroizing::new),
+                "Password" => detail.password.clone().map(Zeroizing::new),
+                "URL" => detail.url.clone().map(Zeroizing::new),
+                "totp" | "TOTP" => Some(Zeroizing::new(
+                    v.entry_totp_now(title.to_string())
+                        .map_err(|e| describe(&e))?,
+                )),
+                other => detail
+                    .custom_fields
+                    .iter()
+                    .find(|f| f.name == *other)
+                    .map(|f| Zeroizing::new(f.value.clone())),
+            };
+            let Some(value) = value else {
+                return Err(format!("条目 '{title}' 缺少字段 '{field}'"));
+            };
+            let key = sp_cli::f8::posix_name(field);
+            if sp_cli::f8::is_protected(&key) {
+                return Err(format!("拒绝注入受保护环境变量 '{key}'（SP-F-301）"));
+            }
+            envs.push((key, value));
+        }
+        let child = sp_cli::spawner::spawn_child(program, args, &envs, false, false)
+            .map_err(|e| format!("启动 '{program}' 失败：{e}"))?;
+        self.touch();
+        Ok(child.id())
+    }
+}
+
+/// EntryModel → FfiEntryDraft（导入候选经会话 actor 写路径的桥接；FFI 面的
+/// password 为普通 String——UniFFI 约束，见 sp-kffi 模块文档 R13-1）
+fn model_to_draft(m: sp_core::EntryModel) -> sp_kffi::FfiEntryDraft {
+    sp_kffi::FfiEntryDraft {
+        title: m.title,
+        username: m.username,
+        password: m.password.map(|p| p.as_str().to_string()),
+        url: m.url,
+        notes: m.notes,
+        otp: m.otp,
+        custom_fields: m
+            .custom_fields
+            .into_iter()
+            .map(|f| sp_kffi::FfiCustomField {
+                name: f.name,
+                value: f.value.as_str().to_string(),
+                protected: f.protected,
+            })
+            .collect(),
+        tags: m.tags,
+    }
+}
+
+// ---------- GUI DTO（serde 序列化面；字段与前端 api.ts 镜像一一对应） ----------
+
+/// 条目摘要 DTO（不含密码/TOTP，SP-F-706 语义）
+#[derive(serde::Serialize, Debug)]
+pub struct EntrySummaryDto {
+    pub title: String,
+    pub username: Option<String>,
+    pub url: Option<String>,
+    pub has_otp: bool,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
+}
+
+impl From<sp_kffi::FfiEntrySummary> for EntrySummaryDto {
+    fn from(s: sp_kffi::FfiEntrySummary) -> Self {
+        EntrySummaryDto {
+            title: s.title,
+            username: s.username,
+            url: s.url,
+            has_otp: s.has_otp,
+            tags: s.tags,
+        }
+    }
+}
+
+/// 自定义字段 DTO（读回与草稿共用；与前端 api.ts 镜像）
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct CustomFieldDto {
+    pub name: String,
+    pub value: String,
+    pub protected: bool,
+}
+
+/// 条目详情 DTO（含密码与 custom_fields——仅经 entry_get 单条显式取回，详情视图瞬态展示）
+#[derive(serde::Serialize, Debug)]
+pub struct EntryDetailDto {
+    pub title: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub url: Option<String>,
+    pub notes: Option<String>,
+    pub otp: Option<String>,
+    pub custom_fields: Vec<CustomFieldDto>,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
+}
+
+impl From<sp_kffi::FfiEntryFull> for EntryDetailDto {
+    fn from(e: sp_kffi::FfiEntryFull) -> Self {
+        EntryDetailDto {
+            title: e.title,
+            username: e.username,
+            password: e.password,
+            url: e.url,
+            notes: e.notes,
+            otp: e.otp,
+            custom_fields: e
+                .custom_fields
+                .into_iter()
+                .map(CustomFieldDto::from)
+                .collect(),
+            tags: e.tags,
+        }
+    }
+}
+
+impl From<sp_kffi::FfiCustomField> for CustomFieldDto {
+    fn from(f: sp_kffi::FfiCustomField) -> Self {
+        CustomFieldDto {
+            name: f.name,
+            value: f.value,
+            protected: f.protected,
+        }
+    }
+}
+
+/// 条目草稿 DTO（GUI 创建/编辑写入面；serde 反序列化自前端 invoke 参数）
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct EntryDraftDto {
+    pub title: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub url: Option<String>,
+    pub notes: Option<String>,
+    pub otp: Option<String>,
+    /// 编辑时由前端原样回传（保真，不渲染编辑控件——S1b-1 口径，S1b-2 提供 UI）
+    #[serde(default)]
+    pub custom_fields: Vec<CustomFieldDto>,
+    /// 标签分类（SP-F-108，S1b-2）
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+impl EntryDraftDto {
+    fn into_ffi(self) -> sp_kffi::FfiEntryDraft {
+        sp_kffi::FfiEntryDraft {
+            title: self.title,
+            username: self.username,
+            password: self.password,
+            url: self.url,
+            notes: self.notes,
+            otp: self.otp,
+            custom_fields: self
+                .custom_fields
+                .into_iter()
+                .map(|f| sp_kffi::FfiCustomField {
+                    name: f.name,
+                    value: f.value,
+                    protected: f.protected,
+                })
+                .collect(),
+            tags: self.tags,
+        }
+    }
+}
+
+/// 导出摘要 DTO（S1c：GUI 导出结果展示；机密值不进此结构）
+#[derive(serde::Serialize, Debug)]
+pub struct ExportSummaryDto {
+    pub entries: usize,
+    pub attachments: usize,
+    pub history_total: usize,
+    pub warnings: Vec<String>,
 }
 
 /// FfiError → 类别文案（只映射类别，不携带凭据值——SP-F-804 审查口径）
@@ -223,6 +600,17 @@ mod tests {
                 },
             )
             .expect("add entry");
+            sp_kdbx::add_entry(
+                &mut db,
+                &EntryModel {
+                    title: "OtpEntry".into(),
+                    username: Some("otp-user".into()),
+                    password: Some(SecureString::new("otp-pass".into())),
+                    otp: Some("otpauth://totp/Test?secret=JBSWY3DPEHPK3PXP&issuer=Test".into()),
+                    ..Default::default()
+                },
+            )
+            .expect("add otp entry");
             sp_kdbx::save_atomic(&db, &path, &factors).expect("seed save");
             Fixture(path)
         }
@@ -292,5 +680,477 @@ mod tests {
         s.unlock(&f.0, "test-db-pass", None).expect("unlock #2");
         assert!(s.unlocked_at > t1, "absolute timer must reset on re-unlock");
         assert!(s.status().unlocked);
+    }
+
+    #[test]
+    fn entry_list_after_unlock_returns_summaries() {
+        let f = Fixture::new("gui-list");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let list = s.entry_list().expect("entry_list");
+        assert_eq!(list.len(), 2);
+        let demo = list.iter().find(|e| e.title == "Demo").expect("Demo");
+        assert_eq!(demo.username.as_deref(), Some("demo-user"));
+        assert!(!demo.has_otp);
+        let otp = list
+            .iter()
+            .find(|e| e.title == "OtpEntry")
+            .expect("OtpEntry");
+        assert!(otp.has_otp);
+    }
+
+    #[test]
+    fn entry_list_locked_returns_locked_error() {
+        let _f = Fixture::new("gui-locked");
+        let mut s = Session::new(Settings::default());
+        // 未解锁即调用 → locked 语义
+        let err = s.entry_list().expect_err("locked");
+        assert!(err.contains("锁定"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn entry_get_returns_detail_with_password() {
+        let f = Fixture::new("gui-get");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let d = s.entry_get("Demo").expect("entry_get");
+        assert_eq!(d.username.as_deref(), Some("demo-user"));
+        assert_eq!(d.password.as_deref(), Some("demo-pass"));
+        assert_eq!(d.url.as_deref(), Some("https://demo.local"));
+    }
+
+    #[test]
+    fn entry_get_missing_returns_not_found() {
+        let f = Fixture::new("gui-missing");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        match s.entry_get("no-such") {
+            Err(err) => assert!(err.contains("不存在"), "unexpected: {err}"),
+            Ok(_) => panic!("expected not-found error"),
+        }
+    }
+
+    #[test]
+    fn entry_totp_generates_code() {
+        let f = Fixture::new("gui-totp");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let code = s.entry_totp("OtpEntry").expect("entry_totp");
+        assert!(!code.is_empty());
+        assert!(
+            code.len() >= 6 && code.len() <= 8,
+            "TOTP code length: {code}"
+        );
+        assert!(
+            code.chars().all(|c| c.is_ascii_digit()),
+            "TOTP code digits: {code}"
+        );
+    }
+
+    #[test]
+    fn entry_totp_without_otp_errors() {
+        let f = Fixture::new("gui-nootp");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        assert!(
+            s.entry_totp("Demo").is_err(),
+            "entry without otp must error"
+        );
+    }
+
+    #[test]
+    fn entry_list_expired_session_locks_lazily() {
+        // idle=0 → 解锁后首次 entry_list 触发惰性锁库 → locked 语义（与 status 同链路）
+        let f = Fixture::new("gui-expire");
+        let mut s = Session::new(Settings {
+            idle_ms: 0,
+            absolute_ms: u64::MAX,
+        });
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let err = s.entry_list().expect_err("lazy lock");
+        assert!(err.contains("锁定"), "unexpected: {err}");
+        assert!(
+            !s.status().unlocked,
+            "session must be locked after lazy expiry"
+        );
+    }
+
+    #[test]
+    fn editing_suspends_idle_but_not_absolute() {
+        // 2026-10-31 验收反馈：编辑中不因空闲锁定打断（absolute 上限保留）
+        let f = Fixture::new("gui-editing");
+        let mut s = Session::new(Settings {
+            idle_ms: 0, // idle 触底：正常态任何访问即锁
+            absolute_ms: u64::MAX,
+        });
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+
+        // 编辑中：idle=0 也不锁，entry_list 正常返回
+        s.set_editing(true);
+        assert!(s.entry_list().is_ok(), "editing must suspend idle timeout");
+        assert!(s.status().unlocked);
+
+        // 退出编辑态：恢复空闲判定 → 首次访问即锁
+        s.set_editing(false);
+        let err = s.entry_list().expect_err("idle resumes after editing");
+        assert!(err.contains("锁定"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn editing_does_not_extend_absolute_timeout() {
+        // absolute=0：即便编辑中，绝对上限到期仍锁（安全底线不被编辑绕过）
+        let f = Fixture::new("gui-editing-abs");
+        let mut s = Session::new(Settings {
+            idle_ms: u64::MAX,
+            absolute_ms: 0,
+        });
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        s.set_editing(true);
+        let err = s.entry_list().expect_err("absolute must still lock");
+        assert!(err.contains("锁定"), "unexpected: {err}");
+        assert!(!s.status().unlocked);
+    }
+
+    #[test]
+    fn lock_now_resets_editing_flag() {
+        let f = Fixture::new("gui-editing-lock");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        s.set_editing(true);
+        s.lock_now();
+        assert!(!s.editing, "lock must clear editing flag");
+    }
+
+    fn draft_dto(title: &str, password: &str) -> EntryDraftDto {
+        EntryDraftDto {
+            title: title.into(),
+            username: Some("writer".into()),
+            password: Some(password.into()),
+            url: Some("https://write.local".into()),
+            notes: None,
+            otp: None,
+            custom_fields: vec![],
+            tags: vec![],
+        }
+    }
+
+    #[test]
+    fn entry_tags_roundtrip_through_create_and_edit() {
+        // SP-F-108：标签经 GUI 创建/编辑写入，完整读回与摘要均可见
+        let f = Fixture::new("gui-tags");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+
+        let mut d = draft_dto("Tagged", "p");
+        d.tags = vec!["work".into(), " infra ".into()];
+        s.entry_create(d).expect("create");
+        let got = s.entry_get("Tagged").expect("get");
+        assert_eq!(got.tags, vec!["work".to_string(), " infra ".to_string()]);
+        let list = s.entry_list().expect("list");
+        let summary = list.iter().find(|e| e.title == "Tagged").expect("summary");
+        assert_eq!(summary.tags.len(), 2);
+
+        // 编辑改标签 → 覆写生效
+        let mut d2 = draft_dto("Tagged", "p");
+        d2.tags = vec!["personal".into()];
+        s.entry_edit("Tagged", d2).expect("edit");
+        let got = s.entry_get("Tagged").expect("get after edit");
+        assert_eq!(got.tags, vec!["personal".to_string()]);
+    }
+
+    #[test]
+    fn entry_create_blank_tag_rejected() {
+        // 校验语义与 CLI 同源（sp-core：标签 trim 后不得为空白）
+        let f = Fixture::new("gui-blanktag");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let mut d = draft_dto("BadTag", "p");
+        d.tags = vec!["   ".into()];
+        match s.entry_create(d) {
+            Err(err) => assert!(err.contains("参数错误"), "unexpected: {err}"),
+            Ok(()) => panic!("blank tag must be rejected"),
+        }
+    }
+
+    #[test]
+    fn entry_create_then_full_readback() {
+        let f = Fixture::new("gui-create");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+
+        let mut d = draft_dto("Created", "created-pass");
+        d.custom_fields = vec![CustomFieldDto {
+            name: "api_key".into(),
+            value: "k-1".into(),
+            protected: true,
+        }];
+        s.entry_create(d).expect("entry_create");
+
+        // 列表含新条目；完整读回含 custom_fields（创建即保真；读回顺序不保证——按名断言）
+        let list = s.entry_list().expect("list");
+        assert!(list.iter().any(|e| e.title == "Created"));
+        let got = s.entry_get("Created").expect("entry_get");
+        assert_eq!(got.password.as_deref(), Some("created-pass"));
+        assert_eq!(got.custom_fields.len(), 1);
+        assert_eq!(got.custom_fields[0].name, "api_key");
+    }
+
+    #[test]
+    fn entry_edit_updates_and_preserves_custom_fields() {
+        let f = Fixture::new("gui-edit");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+
+        let mut d = draft_dto("Editable", "pass-1");
+        d.custom_fields = vec![
+            CustomFieldDto {
+                name: "api_key".into(),
+                value: "k-1".into(),
+                protected: true,
+            },
+            CustomFieldDto {
+                name: "region".into(),
+                value: "cn".into(),
+                protected: false,
+            },
+        ];
+        s.entry_create(d).expect("create");
+
+        // 编辑：改密码 + 改标题，custom_fields 原样回传（保真口径）
+        let mut d2 = draft_dto("Editable-Renamed", "pass-2");
+        d2.custom_fields = vec![
+            CustomFieldDto {
+                name: "api_key".into(),
+                value: "k-1".into(),
+                protected: true,
+            },
+            CustomFieldDto {
+                name: "region".into(),
+                value: "cn".into(),
+                protected: false,
+            },
+        ];
+        s.entry_edit("Editable", d2).expect("entry_edit");
+
+        match s.entry_get("Editable") {
+            Err(err) => assert!(err.contains("不存在"), "old title must be gone: {err}"),
+            Ok(_) => panic!("old title must not resolve after rename"),
+        }
+        let got = s.entry_get("Editable-Renamed").expect("renamed");
+        assert_eq!(got.password.as_deref(), Some("pass-2"));
+        // keepass-ng additional_attributes 为 HashMap 存储，读回顺序跨平台不确定——按集合断言
+        assert_eq!(
+            got.custom_fields
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from(["api_key", "region"]),
+            "custom fields must survive edit"
+        );
+    }
+
+    #[test]
+    fn entry_edit_missing_errors_not_found() {
+        let f = Fixture::new("gui-edit-missing");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        match s.entry_edit("no-such", draft_dto("x", "y")) {
+            Err(err) => assert!(err.contains("不存在"), "unexpected: {err}"),
+            Ok(()) => panic!("expected not-found"),
+        }
+    }
+
+    #[test]
+    fn entry_delete_removes_entry() {
+        let f = Fixture::new("gui-delete");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        s.entry_create(draft_dto("Doomed", "p")).expect("create");
+        s.entry_delete("Doomed").expect("delete");
+        match s.entry_get("Doomed") {
+            Err(err) => assert!(err.contains("不存在"), "unexpected: {err}"),
+            Ok(_) => panic!("deleted entry must not resolve"),
+        }
+    }
+
+    #[test]
+    fn entry_write_locked_denied() {
+        let _f = Fixture::new("gui-write-locked");
+        let mut s = Session::new(Settings::default());
+        match s.entry_create(draft_dto("X", "y")) {
+            Err(err) => assert!(err.contains("锁定"), "unexpected: {err}"),
+            Ok(()) => panic!("locked session must deny create"),
+        }
+    }
+
+    #[test]
+    fn entry_create_invalid_otp_rejected() {
+        // 校验语义与 CLI 同源（sp-core：otp 必须 otpauth:// 开头）
+        let f = Fixture::new("gui-badotp");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let mut d = draft_dto("BadOtp", "p");
+        d.otp = Some("not-otpauth".into());
+        match s.entry_create(d) {
+            Err(err) => assert!(err.contains("参数错误"), "unexpected: {err}"),
+            Ok(()) => panic!("invalid otp must be rejected"),
+        }
+    }
+
+    #[test]
+    fn attachment_add_list_get_roundtrip() {
+        // S1b-2b：GUI 附件管理（list 为 kffi Rust-only 面；add 同名覆盖；get 字节往返）
+        let f = Fixture::new("gui-attach");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        s.entry_create(draft_dto("WithFiles", "p")).expect("create");
+
+        s.attachment_add("WithFiles", "a.txt", b"alpha".to_vec())
+            .expect("add 1");
+        s.attachment_add("WithFiles", "b.bin", vec![1, 2, 3])
+            .expect("add 2");
+        let mut names = s.attachment_list("WithFiles").expect("list");
+        names.sort();
+        assert_eq!(names, vec!["a.txt".to_string(), "b.bin".to_string()]);
+
+        let got = s.attachment_get("WithFiles", "a.txt").expect("get");
+        assert_eq!(got, b"alpha".to_vec());
+
+        // 同名覆盖（对齐 CLI 语义）
+        s.attachment_add("WithFiles", "a.txt", b"alpha-2".to_vec())
+            .expect("overwrite");
+        let got = s.attachment_get("WithFiles", "a.txt").expect("get 2");
+        assert_eq!(got, b"alpha-2".to_vec());
+        assert_eq!(s.attachment_list("WithFiles").expect("list 2").len(), 2);
+
+        // 锁定态拒绝
+        s.lock_now();
+        match s.attachment_list("WithFiles") {
+            Err(err) => assert!(err.contains("锁定"), "unexpected: {err}"),
+            Ok(_) => panic!("locked session must deny attachment list"),
+        }
+    }
+
+    // ---------- S1c：导入 / 导出 / 注入启动 ----------
+
+    fn import_model(title: &str, secret: &str) -> sp_core::EntryModel {
+        sp_core::EntryModel {
+            title: title.into(),
+            username: None,
+            password: Some(sp_core::SecureString::new(secret.into())),
+            url: None,
+            notes: Some("source: test".into()),
+            custom_fields: vec![],
+            otp: None,
+            tags: vec![],
+        }
+    }
+
+    #[test]
+    fn import_commit_writes_entries_and_persists() {
+        let f = Fixture::new("import");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let n = s
+            .import_commit(vec![
+                import_model("[dotenv/.env#1]", "sp-test-only-imp-1"),
+                import_model("[dotenv/.env#2]", "sp-test-only-imp-2"),
+            ])
+            .expect("import_commit");
+        assert_eq!(n, 2);
+        // 持久化验证：锁定重开后仍可见
+        s.lock_now();
+        s.unlock(&f.0, "test-db-pass", None).expect("re-unlock");
+        let list = s.entry_list().expect("list");
+        assert!(list.iter().any(|e| e.title == "[dotenv/.env#1]"));
+        assert!(list.iter().any(|e| e.title == "[dotenv/.env#2]"));
+        // 锁定态拒绝
+        s.lock_now();
+        match s.import_commit(vec![import_model("x", "y")]) {
+            Err(err) => assert!(err.contains("锁定"), "unexpected: {err}"),
+            Ok(_) => panic!("locked session must deny import"),
+        }
+    }
+
+    #[test]
+    fn export_archive_writes_encrypted_file() {
+        let f = Fixture::new("export");
+        let dir = f.0.parent().unwrap().join("out");
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("export.age");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let summary = s
+            .export_archive(out.to_string_lossy().as_ref(), "sp-test-only-pass")
+            .expect("export");
+        assert_eq!(summary.entries, 2, "fixture 两条目");
+        let data = std::fs::read(&out).expect("archive exists");
+        assert!(data.len() > 16);
+        assert!(
+            !String::from_utf8_lossy(&data).contains("test-db-pass"),
+            "归档必须为密文（不含库口令字面量）"
+        );
+        // 锁定态拒绝
+        s.lock_now();
+        match s.export_archive(out.to_string_lossy().as_ref(), "p") {
+            Err(err) => assert!(err.contains("锁定"), "unexpected: {err}"),
+            Ok(_) => panic!("locked session must deny export"),
+        }
+    }
+
+    #[test]
+    fn launch_with_env_validates_and_spawns() {
+        let f = Fixture::new("launch");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+
+        // 缺字段 → 明确报错
+        match s.launch_with_env(
+            "cmd",
+            &[],
+            "Demo",
+            &["Password".to_string(), "NoSuchField".to_string()],
+        ) {
+            Err(err) => assert!(err.contains("NoSuchField"), "{err}"),
+            Ok(_) => panic!("missing field must error"),
+        }
+        // 受保护变量拒绝（SP-F-301）：条目携带名为 PATH 的自定义字段时，
+        // 注入该字段名会被保护名单拒绝
+        s.entry_create(draft_dto("WithPath", "p")).expect("create");
+        {
+            // 给 WithPath 挂 PATH 自定义字段（经编辑面写入）
+            let mut d = draft_dto("WithPath", "p");
+            d.custom_fields = vec![CustomFieldDto {
+                name: "PATH".into(),
+                value: "C:\\evil".into(),
+                protected: false,
+            }];
+            s.entry_edit("WithPath", d).expect("seed PATH field");
+        }
+        match s.launch_with_env("cmd", &[], "WithPath", &["PATH".to_string()]) {
+            Err(err) => assert!(err.contains("SP-F-301"), "{err}"),
+            Ok(_) => panic!("protected var must be refused"),
+        }
+
+        // 正常启动（Windows：cmd /c exit 0——仅验证 spawn 成功返回 pid）
+        #[cfg(windows)]
+        {
+            let pid = s
+                .launch_with_env(
+                    "cmd",
+                    &["/c".to_string(), "exit 0".to_string()],
+                    "Demo",
+                    &["Password".to_string()],
+                )
+                .expect("spawn");
+            assert!(pid > 0);
+        }
+
+        // 锁定态拒绝
+        s.lock_now();
+        match s.launch_with_env("cmd", &[], "Demo", &["Password".to_string()]) {
+            Err(err) => assert!(err.contains("锁定"), "unexpected: {err}"),
+            Ok(_) => panic!("locked session must deny launch"),
+        }
     }
 }

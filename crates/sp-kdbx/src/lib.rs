@@ -3,9 +3,14 @@
 //! 设计见 design_docs/02：
 //! - 库内加密由 KDBX4 格式承担；本层负责映射、原子保存、keyfile 生成（XML v1.0）。
 //! - 回退路径：KeepassRsAdapter（DR-005 备选），不改上层。
-//! - 已知限制（DR-005 记录）：keepass_ng 公共 API 仅支持未保护自定义字段
-//!   （set_additional_attribute 拒绝保留名且无受保护变体），CustomField.protected
-//!   在 v0.1 存储为未保护；主密码字段仍为受保护存储。
+//! - S1d-1（DR-017）：自定义字段 protected 位落地（DR-005 v0.1 限制解除）——
+//!   keepass-ng 以 vendored 补丁（vendor/keepass-ng + [patch.crates-io]）公开
+//!   受保护写/读 API；受保护值 = KDBX4 ProtectedValue（内层流 ChaCha20 字段级
+//!   二次加密，与 Password/otp 同机制，KeePassXC 掩码互认）。
+//! - 仍存限制：keepass_ng 公共 API 对 set_additional_attribute 保留名拒绝逻辑
+//!   不变（9 个保留名禁作自定义字段名）。
+
+pub mod export;
 
 pub use keepass_ng as engine;
 
@@ -122,12 +127,21 @@ fn apply_model(entry: &mut Entry, m: &EntryModel) {
     entry.set_url(m.url.as_deref());
     entry.set_notes(m.notes.as_deref());
     entry.set_raw_otp_value(m.otp.as_deref());
-    // 先清掉旧的未保护自定义字段（保留名除外）
+    // 标签分类（SP-F-108）：KDBX4 原生 Tags 字符串列表，整表覆写
+    *entry.get_tags_mut() = m.tags.clone();
+    // 先清掉旧的自定义字段（保留名除外），再按模型重建——protected 位由
+    // 模型决定（S1d-1/DR-017：受保护值写为 KDBX4 ProtectedValue，字段级
+    // ChaCha20 二次加密，KeePassXC 掩码互认）
     for (k, _) in entry.additional_attributes() {
         let _ = entry.set_additional_attribute(&k, None);
     }
     for f in &m.custom_fields {
-        let _ = entry.set_additional_attribute(&f.name, Some(f.value.as_str()));
+        let value = if f.protected {
+            keepass_ng::db::Value::protected(f.value.as_str().to_string())
+        } else {
+            keepass_ng::db::Value::unprotected(f.value.as_str().to_string())
+        };
+        let _ = entry.set_additional_attribute_value(&f.name, Some(value));
     }
 }
 
@@ -139,15 +153,16 @@ fn model_from_entry(e: &Entry) -> EntryModel {
         url: e.get_url().map(str::to_string),
         notes: e.get_notes().map(str::to_string),
         custom_fields: e
-            .additional_attributes()
+            .additional_attributes_typed()
             .into_iter()
-            .map(|(name, value)| sp_core::CustomField {
+            .map(|(name, v)| sp_core::CustomField {
                 name,
-                value: Zeroizing::new(value),
-                protected: false, // v0.1 限制：见模块文档
+                value: Zeroizing::new(v.get().to_string()),
+                protected: v.is_protected(),
             })
             .collect(),
         otp: e.get_raw_otp_value().map(str::to_string),
+        tags: e.get_tags().clone(),
     }
 }
 
@@ -160,19 +175,48 @@ pub fn add_entry(db: &mut Database, m: &EntryModel) -> Result<(), SpError> {
         .map_err(|e| SpError::Format(format!("add entry: {e}")))
 }
 
-/// 按标题查找（v0.1 单组；uri 的条目段=标题）
+/// 按标题查找（v0.1 单组；uri 的条目段=标题）——取首个命中（DR-016 同名语义）。
 pub fn find_entry(db: &Database, title: &str) -> Result<EntryModel, SpError> {
+    find_entry_at(db, title, None)
+}
+
+/// 同名条目定位错误：未命中=裸标题；命中但序号越界=携带同名总数。
+fn not_found_indexed(title: &str, seen: usize, want: usize) -> SpError {
+    if seen == 0 {
+        SpError::NotFound(title.to_string())
+    } else {
+        SpError::NotFound(format!(
+            "{title} (同名共 {seen} 条; --index {want} 越界, 有效范围 1..={seen})"
+        ))
+    }
+}
+
+/// 按 `标题 + 组内序号` 查找（DR-016 同名策略：同名允许，1-based 文档序；
+/// index=None 等价 1）。序号在删除条目后可能漂移（文档口径，手册 §4）。
+pub fn find_entry_at(
+    db: &Database,
+    title: &str,
+    index: Option<usize>,
+) -> Result<EntryModel, SpError> {
+    let want = index.unwrap_or(1);
+    if want == 0 {
+        return Err(SpError::Parameter("--index is 1-based".into()));
+    }
     let root = db.root.borrow();
     let g = root.downcast_ref::<Group>().expect("root is a group");
+    let mut seen = 0usize;
     for n in g.entries() {
         let e = n.borrow();
         if let Some(e) = e.downcast_ref::<Entry>() {
             if e.get_title() == Some(title) {
-                return Ok(model_from_entry(e));
+                seen += 1;
+                if seen == want {
+                    return Ok(model_from_entry(e));
+                }
             }
         }
     }
-    Err(SpError::NotFound(title.to_string()))
+    Err(not_found_indexed(title, seen, want))
 }
 
 pub fn list_titles(db: &Database) -> Vec<String> {
@@ -199,6 +243,8 @@ pub struct EntrySummary {
     pub username: Option<String>,
     pub url: Option<String>,
     pub has_otp: bool,
+    /// 标签分类（SP-F-108，S1b-2）：摘要携带 tags 供 GUI/CLI 过滤
+    pub tags: Vec<String>,
 }
 
 pub fn list_entry_summaries(db: &Database) -> Vec<EntrySummary> {
@@ -214,45 +260,81 @@ pub fn list_entry_summaries(db: &Database) -> Vec<EntrySummary> {
                 username: e.get_username().map(str::to_string),
                 url: e.get_url().map(str::to_string),
                 has_otp: e.get_raw_otp_value().is_some(),
+                tags: e.get_tags().clone(),
             })
         })
         .collect()
 }
 
 /// 编辑：旧快照推入 history（SP-F-103，update_history 内建），再应用新模型
+/// ——取首个命中（DR-016 同名语义）。
 pub fn edit_entry(db: &mut Database, title: &str, m: &EntryModel) -> Result<(), SpError> {
+    edit_entry_at(db, title, None, m)
+}
+
+/// 按 `标题 + 组内序号` 编辑（DR-016）；history/校验语义与 edit_entry 相同。
+pub fn edit_entry_at(
+    db: &mut Database,
+    title: &str,
+    index: Option<usize>,
+    m: &EntryModel,
+) -> Result<(), SpError> {
     m.validate()?;
+    let want = index.unwrap_or(1);
+    if want == 0 {
+        return Err(SpError::Parameter("--index is 1-based".into()));
+    }
     let mut root = db.root.borrow_mut();
     let g = root.downcast_mut::<Group>().expect("root is a group");
+    let mut seen = 0usize;
     for n in g.entries() {
         let mut e = n.borrow_mut();
         if let Some(e) = e.downcast_mut::<Entry>() {
             if e.get_title() == Some(title) {
-                e.update_history();
-                apply_model(e, m);
-                return Ok(());
+                seen += 1;
+                if seen == want {
+                    e.update_history();
+                    apply_model(e, m);
+                    return Ok(());
+                }
             }
         }
     }
-    Err(SpError::NotFound(title.to_string()))
+    Err(not_found_indexed(title, seen, want))
 }
 
 /// 删除：从树移除并记录到 deleted_objects（KeePassXC 回收站语义的 v0.1 近似）
+/// ——取首个命中（DR-016 同名语义）。
 pub fn delete_entry(db: &mut Database, title: &str) -> Result<(), SpError> {
+    delete_entry_at(db, title, None)
+}
+
+/// 按 `标题 + 组内序号` 删除（DR-016）；删除后同标题其余条目序号前移。
+pub fn delete_entry_at(
+    db: &mut Database,
+    title: &str,
+    index: Option<usize>,
+) -> Result<(), SpError> {
+    let want = index.unwrap_or(1);
+    if want == 0 {
+        return Err(SpError::Parameter("--index is 1-based".into()));
+    }
     let uuid = {
         let root = db.root.borrow();
         let g = root.downcast_ref::<Group>().expect("root is a group");
-        let mut found = None;
+        let mut uuids = Vec::new();
         for n in g.entries() {
             let e = n.borrow();
             if let Some(e) = e.downcast_ref::<Entry>() {
                 if e.get_title() == Some(title) {
-                    found = Some(e.get_uuid());
-                    break;
+                    uuids.push(e.get_uuid());
                 }
             }
         }
-        found.ok_or_else(|| SpError::NotFound(title.to_string()))?
+        match uuids.get(want - 1) {
+            Some(u) => *u,
+            None => return Err(not_found_indexed(title, uuids.len(), want)),
+        }
     };
     let removed = keepass_ng::db::group_remove_node_by_uuid(&db.root, uuid)
         .map_err(|e| SpError::Format(format!("remove: {e}")))?;
@@ -324,25 +406,42 @@ pub fn list_attachments(db: &Database, title: &str) -> Result<Vec<String>, SpErr
 
 // ---------- TOTP（SP-F-601：RFC 6238 经 keepass_ng totp feature 本地生成） ----------
 
-/// 生成条目当前 TOTP 码（数字字符串）。
+/// 生成条目当前 TOTP 码（数字字符串）——取首个命中（DR-016 同名语义）。
 pub fn entry_totp_now(db: &Database, title: &str) -> Result<String, SpError> {
+    entry_totp_now_at(db, title, None)
+}
+
+/// 按 `标题 + 组内序号` 生成 TOTP（DR-016）。
+pub fn entry_totp_now_at(
+    db: &Database,
+    title: &str,
+    index: Option<usize>,
+) -> Result<String, SpError> {
+    let want = index.unwrap_or(1);
+    if want == 0 {
+        return Err(SpError::Parameter("--index is 1-based".into()));
+    }
     let root = db.root.borrow();
     let g = root.downcast_ref::<Group>().expect("root is a group");
+    let mut seen = 0usize;
     for n in g.entries() {
         let e = n.borrow();
         if let Some(e) = e.downcast_ref::<Entry>() {
             if e.get_title() == Some(title) {
-                let totp = e
-                    .get_otp()
-                    .map_err(|err| SpError::NotFound(format!("invalid otp config: {err}")))?;
-                let code = totp
-                    .value_now()
-                    .map_err(|err| SpError::Io(format!("system time: {err}")))?;
-                return Ok(code.code);
+                seen += 1;
+                if seen == want {
+                    let totp = e
+                        .get_otp()
+                        .map_err(|err| SpError::NotFound(format!("invalid otp config: {err}")))?;
+                    let code = totp
+                        .value_now()
+                        .map_err(|err| SpError::Io(format!("system time: {err}")))?;
+                    return Ok(code.code);
+                }
             }
         }
     }
-    Err(SpError::NotFound(title.to_string()))
+    Err(not_found_indexed(title, seen, want))
 }
 
 #[cfg(test)]
@@ -384,5 +483,197 @@ mod tests {
             Err(SpError::NotFound(_))
         ));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// DR-016 同名策略：同名 3 条按文档序 1-based 寻址（find/edit/delete/totp）。
+    fn same_title_fixture(tag: &str) -> (std::path::PathBuf, CredentialFactors) {
+        let dir = std::env::temp_dir().join(format!("sp-kdbx-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("t.kdbx");
+        let factors = CredentialFactors::new(Zeroizing::new("sp-test-only".into()), None);
+        let params = KdfParams {
+            memory_kib: 64 * 1024,
+            iterations: 2,
+            parallelism: 1,
+        };
+        create_db(&path, &factors, &params).expect("create");
+        let mut db = open_db(&path, &factors).expect("open");
+        for user in ["u1", "u2", "u3"] {
+            add_entry(
+                &mut db,
+                &EntryModel {
+                    title: "dup".into(),
+                    username: Some(user.into()),
+                    ..Default::default()
+                },
+            )
+            .expect("add dup entry");
+        }
+        save_atomic(&db, &path, &factors).expect("save");
+        (path, factors)
+    }
+
+    #[test]
+    fn find_entry_at_resolves_same_title_instances() {
+        let (path, factors) = same_title_fixture("find-at");
+        let db = open_db(&path, &factors).expect("open");
+        // 文档序：None 与 1 等价（现状锚定），2/3 依次命中
+        for (index, user) in [
+            (None, "u1"),
+            (Some(1), "u1"),
+            (Some(2), "u2"),
+            (Some(3), "u3"),
+        ] {
+            let m = find_entry_at(&db, "dup", index).expect("find_at");
+            assert_eq!(m.username.as_deref(), Some(user), "index={index:?}");
+        }
+        // 越界：携带同名总数（NotFound 语义不变，退 3）
+        match find_entry_at(&db, "dup", Some(4)) {
+            Err(SpError::NotFound(msg)) => assert!(msg.contains("3 条"), "{msg}"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+        // index=0 参数错误
+        assert!(matches!(
+            find_entry_at(&db, "dup", Some(0)),
+            Err(SpError::Parameter(_))
+        ));
+        // 未命中：裸标题（不带计数）
+        match find_entry_at(&db, "nope", Some(2)) {
+            Err(SpError::NotFound(msg)) => assert_eq!(msg, "nope"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn edit_entry_at_targets_correct_instance_and_keeps_history() {
+        let (path, factors) = same_title_fixture("edit-at");
+        let mut db = open_db(&path, &factors).expect("open");
+        let model = find_entry_at(&db, "dup", Some(2)).expect("pre-read");
+        let edited = EntryModel {
+            username: Some("u2-edited".into()),
+            ..model
+        };
+        edit_entry_at(&mut db, "dup", Some(2), &edited).expect("edit_at");
+        save_atomic(&db, &path, &factors).expect("save");
+        let db = open_db(&path, &factors).expect("reopen");
+        assert_eq!(
+            find_entry_at(&db, "dup", Some(2))
+                .expect("#2")
+                .username
+                .as_deref(),
+            Some("u2-edited"),
+            "必须改中 #2 而非首个"
+        );
+        assert_eq!(
+            find_entry_at(&db, "dup", Some(1))
+                .expect("#1")
+                .username
+                .as_deref(),
+            Some("u1"),
+            "#1 不受影响"
+        );
+        // history 压栈：#2 旧值可回溯（SP-F-103 语义在 indexed 面保持）
+        let raw = find_history_len(&db, "dup", 2);
+        assert!(raw >= 1, "#2 旧快照必须进 history（实际 {raw} 条）");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// 经 engine 面数 history 长度（仅测试用：直接遍历同标题第 want 个 Entry）
+    fn find_history_len(db: &Database, title: &str, want: usize) -> usize {
+        use keepass_ng::db::Node as _;
+        let root = db.root.borrow();
+        let g = root.downcast_ref::<Group>().expect("root is a group");
+        let mut seen = 0usize;
+        for n in g.entries() {
+            let e = n.borrow();
+            if let Some(e) = e.downcast_ref::<Entry>() {
+                if e.get_title() == Some(title) {
+                    seen += 1;
+                    if seen == want {
+                        return e
+                            .get_history()
+                            .as_ref()
+                            .map(|h| h.get_entries().len())
+                            .unwrap_or(0);
+                    }
+                }
+            }
+        }
+        0
+    }
+
+    #[test]
+    fn delete_entry_at_removes_selected_instance() {
+        let (path, factors) = same_title_fixture("delete-at");
+        let mut db = open_db(&path, &factors).expect("open");
+        delete_entry_at(&mut db, "dup", Some(1)).expect("delete #1");
+        save_atomic(&db, &path, &factors).expect("save");
+        let db = open_db(&path, &factors).expect("reopen");
+        // 剩余 2 条前移：原 #2 变 #1
+        assert_eq!(
+            find_entry_at(&db, "dup", Some(1))
+                .expect("#1")
+                .username
+                .as_deref(),
+            Some("u2"),
+            "删除后序号前移（DR-016 文档口径）"
+        );
+        assert_eq!(
+            find_entry_at(&db, "dup", Some(2))
+                .expect("#2")
+                .username
+                .as_deref(),
+            Some("u3")
+        );
+        // 现在越界到 3
+        assert!(matches!(
+            find_entry_at(&db, "dup", Some(3)),
+            Err(SpError::NotFound(_))
+        ));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// S1d-1/DR-017：受保护自定义字段——save→reload 后 protected 位与值保真；
+    /// 未保护字段不受影响（同条目混合场景）。
+    #[test]
+    fn protected_custom_field_roundtrip_in_memory() {
+        let (path, factors) = same_title_fixture("prot-cf");
+        let mut db = open_db(&path, &factors).expect("open");
+        let model = find_entry_at(&db, "dup", Some(1)).expect("read");
+        let edited = EntryModel {
+            custom_fields: vec![
+                sp_core::CustomField {
+                    name: "api_key".into(),
+                    value: Zeroizing::new("k-1".into()),
+                    protected: true,
+                },
+                sp_core::CustomField {
+                    name: "region".into(),
+                    value: Zeroizing::new("cn".into()),
+                    protected: false,
+                },
+            ],
+            ..model
+        };
+        edit_entry_at(&mut db, "dup", Some(1), &edited).expect("edit");
+        save_atomic(&db, &path, &factors).expect("save");
+        let db = open_db(&path, &factors).expect("reopen");
+        let m = find_entry_at(&db, "dup", Some(1)).expect("#1");
+        // 顺序不保证（HashMap 语义）——按名断言
+        let api = m
+            .custom_fields
+            .iter()
+            .find(|f| f.name == "api_key")
+            .expect("api_key");
+        assert!(api.protected, "受保护位必须跨 save/reload 保真");
+        assert_eq!(api.value.as_str(), "k-1");
+        let region = m
+            .custom_fields
+            .iter()
+            .find(|f| f.name == "region")
+            .expect("region");
+        assert!(!region.protected, "未保护位不受影响");
+        assert_eq!(region.value.as_str(), "cn");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

@@ -7,11 +7,12 @@ import type {
   ContentToSwMessage,
   HostEnvelope,
   HostResponse,
+  PageInfoResponse,
   PopupMessage,
   StatusInfo,
 } from "../shared/messages";
 import { HOST_NAME } from "../shared/messages";
-import { SavePendingStore } from "./save-pending";
+import { SavePendingStore, urlHost } from "./save-pending";
 import { activeTabId, pageUrl } from "./tabs";
 
 // SP-F-708：登录保存暂存（纯内存，SP-F-707；SW 回收即清空）
@@ -101,11 +102,15 @@ function stopKeepalive(): void {
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === KEEPALIVE_ALARM && sessionActive) {
-    hostCall("sp.ping").catch(() => {
-      sessionActive = false;
-      stopKeepalive();
-    });
+  if (alarm.name === KEEPALIVE_ALARM) {
+    // S3 审计：保活周期顺带清扫过期待保存项（密码不滞留超 TTL 一个周期）
+    savePending.sweepExpired();
+    if (sessionActive) {
+      hostCall("sp.ping").catch(() => {
+        sessionActive = false;
+        stopKeepalive();
+      });
+    }
   }
 });
 
@@ -188,6 +193,24 @@ chrome.runtime.onMessage.addListener(
           try {
             const tabId = await activeTabId();
             if (tabId === null) throw new Error("no active tab");
+            // TOCTOU 复核（S3 审计 2026-10-31）：popup 打开期间目标页可能已被
+            // 页面脚本重定向（location.href 自我跳转），按匹配时快照取回的秘密
+            // 会填进另一个站点的表单。取秘密前向目标 tab 的 content script 索取
+            // 当前 URL（同文档真相）与所选条目 url 的 host 比对：无 content
+            // script（chrome:// 等本就不可填）或 host 不一致即中止。
+            if (msg.url) {
+              const cur = await chrome.tabs
+                .sendMessage(tabId, {
+                  type: "sp.pageInfo",
+                } satisfies ContentMessage)
+                .then((r) => (r as PageInfoResponse).url)
+                .catch(() => null);
+              if (cur === null || urlHost(cur) !== urlHost(msg.url)) {
+                throw new Error(
+                  "page-mismatch: target page changed since matching; reopen the popup",
+                );
+              }
+            }
             const pw = await hostCall<{ value: string }>("sp.get-secret", {
               id: msg.id,
               field: "password",

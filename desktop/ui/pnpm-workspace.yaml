@@ -1,0 +1,4 @@
+# 单包仓库（非 workspace）；此文件承载 pnpm 11 的依赖脚本安全设置：
+# 允许 esbuild 的安装期脚本（官方平台二进制包落位），其余依赖脚本一律拒绝。
+allowBuilds:
+  esbuild: true

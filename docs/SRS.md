@@ -1,6 +1,6 @@
 # SuperPasswdKey 软件需求规格说明书（SRS）
 
-- 版本：**V1.4（2026-10-30，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8）**
+- 版本：**V1.12（2026-10-31，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP；V1.6 变更=新增 SP-F-909 桌面 GUI 条目写路径（S1b-1：创建/编辑/删除 + 显示/放大显示交互）；V1.7 变更=新增 SP-F-108 标签分类（KDBX4 原生 Tags 全栈：CLI+GUI，S1b-2）；V1.8 变更=新增 SP-F-910 桌面 GUI 附件管理 + SP-F-909 扩展自定义字段编辑 UI（S1b-2b）；V1.9 变更=SP-F-904 扩展 keyfile 路径记忆（settings.json keyfile_path）+ SP-F-909 编辑中暂停空闲锁定 + CLI 参数校验前置（无库依赖校验移至解锁之前）；V1.10 变更=SP-F-102 CLI edit 入口落地（`sp item edit`，patch 语义+校验前置）+ 同名条目策略定版 DR-016（允许同名 + `--index` 组内序号寻址：item get/edit/delete/read/clip 与 list --enumerate）；V1.11 变更=SP-F-102 受保护自定义字段落地（S1d-1/DR-017：keepass-ng vendored 补丁解除 DR-005 v0.1 限制，CLI `--field-secret` + GUI 保护勾选，字段级 ChaCha20 与 Password/TOTP 同机制）；V1.12 变更=新增 SP-F-911 桌面 GUI 导入/导出向导 + SP-F-912 桌面 GUI 注入启动器（S1c：CLI 语义单源复用，秘密不落盘））**
 - 开发模型：瀑布（三轮审核：完整性→一致性→可执行性，记录见 `docs/reviews/srs_review.md`）
 - 需求来源：《docs/research/自研需求基线_SuperPasswdKey.md》（B1–B22）、决策记录 DR-001~005、2 天冲刺计划两轮复审修正
 - 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-F-8xx` Android（V1.2 新增）｜`SP-F-9xx` 桌面 Windows（V1.3 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
@@ -63,12 +63,12 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 
 **SP-F-102 条目 CRUD（P0，B1，confirmed）**
 - 描述：`sp item create/edit/delete/list`；类型化条目（login/secure-note/ssh-key/自定义字段）；**全字段加密**（标题/URL/备注等元数据纳入，红线 #4）。
-- 字段：title、username、password、url、notes、自定义字段（名/值/受保护位）、history。
-- 验收：CRUD 后 round-trip（KeePassXC 读回）字段无损；删除进入回收站语义；单库条目数 1000 时 list ≤500ms（SP-N-301）。
+- 字段：title、username、password、url、notes、自定义字段（名/值/受保护位——受保护位自 S1d-1/DR-017 起落地：字段级 ChaCha20 二次加密）、history。
+- 验收：CRUD 后 round-trip（KeePassXC 读回）字段无损；删除进入回收站语义；单库条目数 1000 时 list ≤500ms（SP-N-301）；edit 为 patch 语义（未给字段不变，2026-10-31 落地）；受保护自定义字段经 keepassxc-cli 掩码互认（roundtrip 用例）。
 
 **SP-F-103 修改历史（P0，B1，confirmed）**
 - 描述：每次 edit 保存旧版本为 history 条目（逐字段时间戳）。
-- 验收：history 在 KeePassXC 中可见可回溯；`sp item get --history` 列出。
+- 验收：history 在 KeePassXC 中可见可回溯；`sp item get --history` 列出（查看命令仍为后续；edit 压栈已随 `sp item edit` 落地，2026-10-31）。
 
 **SP-F-104 附件（P1→本期 P0，B21，confirmed；命令族补全 2026-10-29）**
 - 描述：`sp attachment add/list/get`——add 支持对已有条目增补/覆盖附件（同名覆盖），list 列举附件名，get 取回为文件（ACL 限当前用户）或原始字节 stdout（可管道、不落盘）；`sp item create --attach` 保留为建条目时附加；附件存入 KDBX4 binaries（格式层加密）。
@@ -85,6 +85,10 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 **SP-F-107 库兼容与损坏处理（P0，derived——格式互操作承诺的必然要求）**
 - 描述：打开非 KDBX4 / 更高格式版本 / 损坏库文件时，给出明确错误（退出码 1）与可行动提示；不静默失败、不尝试修复写回。
 - 验收：损坏文件（截断/坏魔数/未知版本）三类样例的错误路径测试。
+
+**SP-F-108 标签分类（P1，S1b-2，confirmed）**
+- 描述：条目标签基于 KDBX4 原生 Tags 字符串列表（keepass_ng get_tags/get_tags_mut，KeePassXC 互认），全栈打通：EntryModel.tags（校验：trim 后非空）→ CLI（`sp item create --tag` 可重复、`sp item list --tag` 精确过滤大小写不敏感、`sp item get` 显示 Tags 行）→ sp-kffi（FfiEntry/FfiEntrySummary/FfiEntryDraft 携带 tags，UniFFI 面变更须同步重生 Android Kotlin 绑定）→ 桌面 GUI（创建/编辑表单逗号分隔输入、列表标签徽标点击过滤、详情标签行、搜索匹配标签）。
+- 验收：kdbx/core 校验单测；kffi e2e 标签 roundtrip（含编辑覆写）；desktop session 测试（创建/编辑/摘要可见/空白标签拒绝）；CLI 手册同步；KeePassXC 互操作（Tags 为 KDBX4 原生字段，roundtrip 既有对拍覆盖格式层）。
 
 ### 3.2 CLI（SP-F-2xx）
 
@@ -220,8 +224,8 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 
 ### 3.9 桌面 Windows（SP-F-9xx，V1.3 新增，来源 DR-013 批次 1）
 
-**SP-F-901 桌面托盘壳（P0，DR-013，confirmed）**
-- 描述：Tauri v2 托盘常驻（独立 workspace，仅 MSVC）；关窗=隐藏（进程与会话保留）；托盘菜单=显示解锁窗/立即锁定/设置/退出；静态前端零 Node 依赖。
+**SP-F-901 桌面托盘壳（P0，DR-013，confirmed；DR-014 修订前端形态）**
+- 描述：Tauri v2 托盘常驻（独立 workspace，仅 MSVC）；关窗=隐藏（进程与会话保留）；托盘菜单=显示解锁窗/立即锁定/设置/退出；前端 Vue 3 + Vite 构建（DR-014，v0.3.0 静态零 Node 页为过渡形态；运行期零 Node，产物静态打包，机密不进前端存储）。
 - 验收：`cargo tauri build` 产物托盘常驻、菜单四项行为正确；linux CI 不受影响（desktop 独立 workspace + 独立 job）。
 
 **SP-F-902 桌面解锁会话（P0，DR-013，红线#5，confirmed）**
@@ -232,9 +236,9 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 - 描述：idle（机密操作 touch 刷新）与 absolute（自解锁时刻）双超时独立可配（默认 300s/1800s，对齐 DR-006 与用户 30min 示例口径）；任一到即锁库，再次使用须重新主密码；解锁态翻转即向后端/扩展通知。
 - 验收：可注入超时单测（idle=0 解锁后首次访问即锁）；NM 侧 `sp.event locked` 通知（watcher）；重新解锁重置双计时器。
 
-**SP-F-904 桌面设置持久化（P1，DR-013，confirmed）**
-- 描述：%APPDATA%/SuperPasswdKey/settings.json 仅存非机密（idle_ms/absolute_ms/autostart）；serde_json 读写；损坏/缺失回落默认值不崩；超时配置重启生效；自启开关即时生效。任何凭据不入设置文件。
-- 验收：roundtrip/损坏回落/BOM 兼容单测；改设置后 `settings.json` 落盘正确。
+**SP-F-904 桌面设置持久化（P1，DR-013，confirmed；v1.9 扩展 keyfile 路径记忆）**
+- 描述：%APPDATA%/SuperPasswdKey/settings.json 仅存非机密（idle_ms/absolute_ms/autostart + keyfile_path——上次成功解锁使用的 keyfile 路径，2026-10-31 验收反馈新增；路径非机密值，design_docs/15 §6 同口径；解锁成功后自动记忆，设置面板保存不覆盖该字段，读取时文件不存在则返回空、配置保留）；serde_json 读写（旧版文件缺 keyfile_path 字段按空串回落）；损坏/缺失回落默认值不崩；超时配置重启生效；自启开关即时生效。任何凭据不入设置文件。
+- 验收：roundtrip/损坏回落/BOM 兼容/旧版字段回落单测；改设置后 `settings.json` 落盘正确；keyfile 记忆与文件浏览（系统对话框）手工验收。
 
 **SP-F-905 桌面开机自启（P1，DR-013，confirmed）**
 - 描述：HKCU\Software\Microsoft\Windows\CurrentVersion\Run 用户级注册表值（免管理员，手写 registry）；值名 SuperPasswdKey=带引号 exe 全路径；settings.json autostart 字段为偏好单一来源，启动与保存时对账（手删注册表值重启即恢复，关偏好即清残留）。
@@ -247,6 +251,26 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 **SP-F-907 桌面浏览器填充链路（P0，DR-013，confirmed）**
 - 描述：sp.get-logins 按 URL 匹配条目摘要（复用 match_url 语义，SP-F-706 单源）+ sp.get-secret 单条显式取回（password/totp 白名单）；动作纪律与 SP-F-702 单源（无全库导出、锁定拒绝、机密不进错误链、成功请求刷新空闲计时）；NM 侧解锁目标=桌面单库（%APPDATA%/SuperPasswdKey/vault.kdbx），keyfile 仅经 nm-host-config.json（不经管道）。
 - 验收：匹配命中与反例（子串误配不命中）；get-logins 响应不含密码字段；锁定态 get-logins/get-secret 拒绝。
+
+**SP-F-908 桌面 GUI 条目浏览（P1，DR-014，S1a MVP，confirmed）**
+- 描述：解锁后主窗提供条目列表（标题/用户名/URL/TOTP 标记，经 sp-kffi list_entry_summaries）+ 即时搜索（客户端过滤）+ 详情只读视图（find_entry 含密码瞬态展示、TOTP 动态码 30s 轮询、复制按钮经 Rust clip_copy=arboard+30s 超时清空，对齐 CLI clip 语义）；所有机密操作经 Session 惰性超时检查（过期即锁库，SP-F-903 口径）；机密不进前端存储（SP-F-707 口径）；MVP 不含写路径（条目 CRUD/附件/TOTP 编辑在 S1b）。
+- 验收：真实库解锁→列表→搜索→详情→TOTP 复制全链路；锁定态请求返回 locked 语义；组件测试（vitest）+ session 测试回归全绿；CI 七 job 全绿。
+
+**SP-F-909 桌面 GUI 条目写路径（P1，S1b-1，confirmed；S1b-2b 扩展自定义字段编辑 UI）**
+- 描述：GUI 内条目全生命周期——创建（"新的项目"表单）、编辑（详情页编辑表单，标题可改；旧快照自动进 history，SP-F-103 语义经 sp-kdbx edit_entry 单源）、删除（确认对话框）；表单校验对齐 CLI 语义（标题必填；otp 必须 otpauth:// 开头；同名允许，靠列表/搜索区分；S1b-2b 起自定义字段名称非空且非 KDBX 保留名，与 sp-core 同源）；详情交互增强对标 1Password：密码行下拉（显示=掩码↔明文切换、放大显示=全屏大字号模态、复制）；**编辑中暂停空闲锁定**（2026-10-31 验收反馈：EntryFormModal 打开期间 idle 超时不触发、顶栏倒计时显示满格；absolute 绝对上限保留不被绕过——表单内容在锁定后保留，重新解锁可直接再保存）；保存后列表与详情立即更新（无需手动刷新）；自定义字段完整读回并保真回传（sp-kffi Rust-only 面 find_entry_full，不经 UniFFI 导出、Kotlin 绑定零漂移）；S1b-2b 起表单提供自定义字段增删改行（v0.1 存储不支持 protected 标记持久化——DR-005，保护标记恒为 false 如实披露）；写入后经 save_session 零凭据保存（DR-012 A1 同源）；机密不进前端存储（SP-F-707 口径）。
+- 验收：GUI 完成一条真实条目的创建→编辑（含改名/改密）→显示/放大显示→删除全生命周期；custom_fields 编辑后不丢（自动化断言）；双超时/锁定语义不回归；组件测试 + Rust session 测试全绿；CI 全绿。
+
+**SP-F-910 桌面 GUI 附件管理（P1，S1b-2b，confirmed）**
+- 描述：详情页附件区——列表（sp-kffi Rust-only 面 list_attachments，语义=sp_kdbx::list_attachments 单源）、添加（文件选择器读字节经 Rust add_attachment 同名覆盖，对齐 CLI sp attachment add 语义，save_session 零凭据保存）、下载（Rust 侧系统保存对话框 tauri-plugin-dialog → 落盘 + 限权收敛复用 sp-core::fsperms 单源——与 CLI attachment_get 同语义 icacls/0600）；锁定态拒绝；机密不进前端存储（附件字节经 invoke 瞬态传递，不落前端持久层）。
+- 验收：kffi e2e（list/add/get roundtrip + 同名覆盖）+ desktop session 测试（roundtrip/覆盖/锁定拒绝）+ vitest（附件渲染/下载调用）；下载文件 `icacls` 核对仅当前用户可读（手工项）。
+
+**SP-F-911 桌面 GUI 导入/导出向导（P1，S1c，confirmed）**
+- 描述：导入向导（两阶段：扫描=复用 sp-cli importer 单源管道不触库不解锁 → 确认提交=经会话 actor 逐条写入 + 单次 save_session；候选值不回传前端，表格仅标题/来源/密码长度）；导出对话框（age 加密归档，实现下沉 sp-kdbx::export 单源、经 kffi 会话凭据零凭据入参（DR-012 A1 同源）+ 保存对话框 + 限权收敛）。明文导出仅限 CLI `--plaintext` 三重防护，GUI 不提供。
+- 验收：desktop session 测试（import 写入/持久化/锁定拒绝、export 密文性/锁定拒绝）+ vitest（扫描报告/提交调用、口令校验）；导入结果在 KeePassXC 可见（手工项）。
+
+**SP-F-912 桌面 GUI 注入启动器（P1，S1c，confirmed）**
+- 描述：选条目 + 勾选注入字段（UserName/Password/URL/TOTP/自定义字段）+ 程序路径/参数 → 以 `sp run` 语义启动：进程生成经 sp-cli::spawner 单源（argv 直 exec 无 shell，design_docs/04）、env 键 posix_name 净化、受保护变量拒绝（SP-F-301）、子进程 stdio 继承无遮蔽（对齐 `--no-masking` 文档口径）；秘密仅存在于子进程环境，不落盘。
+- 验收：desktop session 测试（缺字段/受保护变量拒绝/锁定拒绝/正常 spawn 返回 PID）+ vitest（字段选择/参数透传/错误展示）；GUI 内帮助含 CLI `.env` 工作流等价写法。
 
 ## 4. 非功能需求（SP-N，全部绑定测量方法）
 

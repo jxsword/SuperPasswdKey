@@ -8,6 +8,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 mod autostart;
@@ -21,7 +22,10 @@ use tauri::{
     Manager, State,
 };
 
-use session::{describe, Session, SessionStatus};
+use session::{
+    describe, EntryDetailDto, EntryDraftDto, EntrySummaryDto, ExportSummaryDto, Session,
+    SessionStatus,
+};
 use settings::SettingsFile;
 
 /// 会话锁（Mutex<Session>；Vault Send+!Sync 由 Mutex 补足 Sync）。
@@ -33,7 +37,9 @@ fn session_status(state: State<SessionState>) -> SessionStatus {
     state.0.lock().expect("session poisoned").status()
 }
 
-/// 解锁（password/keyfile 即用即弃：仅本次调用栈，传给 FFI 后随栈帧释放）
+/// 解锁（password/keyfile 即用即弃：仅本次调用栈，传给 FFI 后随栈帧释放）。
+/// 成功后记忆 keyfile 路径到 settings.json（2026-10-31 验收反馈：免每次手输；
+/// 路径非机密值，design_docs/15 §6 同口径）。
 #[tauri::command]
 fn unlock(
     state: State<SessionState>,
@@ -45,7 +51,43 @@ fn unlock(
     session
         .unlock(&db_path, &password, keyfile.as_deref())
         .map_err(|e| describe(&e))?;
+    if let Some(kf) = keyfile.as_deref().filter(|s| !s.is_empty()) {
+        let mut s = settings::load_or_default();
+        s.keyfile_path = kf.to_string();
+        if let Err(e) = settings::save_to(&settings::settings_path(), &s) {
+            eprintln!("[warn] persist keyfile path: {e}"); // 记忆失败不阻断解锁
+        }
+    }
     Ok(session.status())
+}
+
+/// 编辑态开关（EntryFormModal 打开/关闭）：暂停 idle 超时，absolute 保留。
+#[tauri::command]
+fn set_editing(state: State<SessionState>, active: bool) {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .set_editing(active);
+}
+
+/// keyfile 文件浏览（系统打开对话框，Rust 侧调用 tauri-plugin-dialog）；
+/// 取消返回空串。
+#[tauri::command]
+fn keyfile_pick(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(target) = app
+        .dialog()
+        .file()
+        .add_filter("Keyfile", &["keyfile", "keyx", "*"])
+        .blocking_pick_file()
+    else {
+        return Ok(String::new());
+    };
+    match target {
+        tauri_plugin_dialog::FilePath::Path(p) => Ok(p.to_string_lossy().to_string()),
+        other => Err(format!("unsupported dialog target: {other:?}")),
+    }
 }
 
 #[tauri::command]
@@ -60,15 +102,24 @@ fn touch(state: State<SessionState>) {
     state.0.lock().expect("session poisoned").touch();
 }
 
-/// 读取设置文件（损坏/缺失已回落默认值；仅非机密字段）
+/// 读取设置文件（损坏/缺失已回落默认值；仅非机密字段）。
+/// keyfile_path 指向的文件不存在时返回空串（本次不预填；配置保留——
+/// U 盘 keyfile 临时拔出后恢复即复用）。
 #[tauri::command]
 fn get_settings() -> SettingsFile {
-    settings::load_or_default()
+    let mut s = settings::load_or_default();
+    if !s.keyfile_path.is_empty() && !std::path::Path::new(&s.keyfile_path).exists() {
+        s.keyfile_path = String::new();
+    }
+    s
 }
 
 /// 保存设置：写 settings.json（超时配置重启后生效）+ 即时对账自启注册表值。
+/// keyfile_path 由 unlock 流程维护——设置面板不持有该字段，落盘前强制保留现值。
 #[tauri::command]
 fn save_settings(s: SettingsFile) -> Result<SettingsFile, String> {
+    let mut s = s;
+    s.keyfile_path = settings::load_from(&settings::settings_path()).keyfile_path;
     settings::save_to(&settings::settings_path(), &s)?;
     let exe = std::env::current_exe()
         .map_err(|e| format!("resolve current exe: {e}"))?
@@ -76,6 +127,311 @@ fn save_settings(s: SettingsFile) -> Result<SettingsFile, String> {
         .to_string();
     autostart::reconcile(s.autostart, &exe)?;
     Ok(s)
+}
+
+// ---------- GUI 条目浏览（S1a MVP；design_docs/16 §4 command 面映射） ----------
+
+/// 条目摘要列表（惰性超时检查；锁定态返回 locked 语义供前端提示重新解锁）
+#[tauri::command]
+fn entry_list(state: State<SessionState>) -> Result<Vec<EntrySummaryDto>, String> {
+    state.0.lock().expect("session poisoned").entry_list()
+}
+
+/// 条目详情（含密码——仅详情视图瞬态展示，不落前端存储，SP-F-707 口径）
+#[tauri::command]
+fn entry_get(state: State<SessionState>, title: String) -> Result<EntryDetailDto, String> {
+    state.0.lock().expect("session poisoned").entry_get(&title)
+}
+
+/// 条目当前 TOTP 码（RFC 6238 本地生成）
+#[tauri::command]
+fn entry_totp(state: State<SessionState>, title: String) -> Result<String, String> {
+    state.0.lock().expect("session poisoned").entry_totp(&title)
+}
+
+/// 新建条目（复用 Vault::add_entry + save_session 零凭据保存；同名允许，对齐 CLI 口径）
+#[tauri::command]
+fn entry_create(state: State<SessionState>, draft: EntryDraftDto) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .entry_create(draft)
+}
+
+/// 编辑条目（按 old_title 定位，标题可经 draft 改写；旧快照进 history，SP-F-103 单源）
+#[tauri::command]
+fn entry_edit(
+    state: State<SessionState>,
+    old_title: String,
+    draft: EntryDraftDto,
+) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .entry_edit(&old_title, draft)
+}
+
+/// 删除条目（复用 Vault::delete_entry + save_session）
+#[tauri::command]
+fn entry_delete(state: State<SessionState>, title: String) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .entry_delete(&title)
+}
+
+/// 列条目附件名（S1b-2b）
+#[tauri::command]
+fn attachment_list(state: State<SessionState>, title: String) -> Result<Vec<String>, String> {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .attachment_list(&title)
+}
+
+/// 添加附件（同名覆盖，语义对齐 CLI sp attachment add；保存经 save_session 零凭据）
+#[tauri::command]
+fn attachment_add(
+    state: State<SessionState>,
+    title: String,
+    name: String,
+    data: Vec<u8>,
+) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .attachment_add(&title, &name, data)
+}
+
+/// 下载附件：弹出系统保存对话框 → Rust 落盘 + 限权收敛（icacls/0600，
+/// 复用 sp-core::fsperms 单源——与 CLI attachment_get 同语义）。返回落盘路径；
+/// 用户取消返回空串。
+#[tauri::command]
+fn attachment_download(
+    app: tauri::AppHandle,
+    state: State<SessionState>,
+    title: String,
+    name: String,
+) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(target) = app
+        .dialog()
+        .file()
+        .set_file_name(&name)
+        .blocking_save_file()
+    else {
+        return Ok(String::new());
+    };
+    let path = match target {
+        tauri_plugin_dialog::FilePath::Path(p) => p,
+        other => return Err(format!("unsupported dialog target: {other:?}")),
+    };
+    let data = state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .attachment_get(&title, &name)?;
+    std::fs::write(&path, &data).map_err(|e| format!("write '{}': {e}", path.display()))?;
+    sp_core::fsperms::restrict(&path).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// 复制到剪贴板（arboard 写入 + 30s 超时清空，对齐 CLI sp clip 语义；
+/// 后台线程清空不阻塞 UI；Win+V 历史不受 sp 控制——提示文案与 CLI 一致）
+#[tauri::command]
+fn clip_copy(text: String) -> Result<(), String> {
+    let mut ctx = arboard::Clipboard::new().map_err(|e| format!("初始化剪贴板失败：{e}"))?;
+    ctx.set_text(text)
+        .map_err(|e| format!("写入剪贴板失败：{e}"))?;
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        if let Ok(mut c) = arboard::Clipboard::new() {
+            let _ = c.set_text(String::new());
+        }
+    });
+    Ok(())
+}
+
+// ---------- S1c：导入 / 导出 / 注入启动（design_docs/16 §4 增补） ----------
+
+/// 解析指定 kind 的发现列表（复用 sp-cli importer 单源；纯函数无会话状态）
+fn parse_import_findings(
+    kind: &str,
+    path: Option<&str>,
+) -> Result<Vec<sp_cli::importer::Finding>, String> {
+    let p = Path::new(path.unwrap_or_default());
+    let res = match kind {
+        "dotenv" => sp_cli::importer::parse_dotenv(p),
+        "csv" => sp_cli::importer::parse_csv(p),
+        "bw-json" => sp_cli::importer::parse_bw_json(p),
+        "env" => Ok(sp_cli::importer::parse_env_snapshot()),
+        "files" => sp_cli::importer::parse_files(p),
+        other => return Err(format!("unknown import kind '{other}'")),
+    };
+    res.map_err(|e| e.to_string())
+}
+
+/// 导入候选 DTO（值不回传前端——密码长度与来源信息足够确认，SP-F-707 口径）
+#[derive(serde::Serialize)]
+struct ImportCandidateDto {
+    title: String,
+    notes: Option<String>,
+    password_len: usize,
+}
+
+/// 导入扫描结果 DTO（三级去重报告 + 候选清单）
+#[derive(serde::Serialize)]
+struct ImportScanDto {
+    total: usize,
+    unique: usize,
+    l1_duplicates: usize,
+    l2_merged: usize,
+    l3_conflicts: usize,
+    manual_review: Vec<String>,
+    candidates: Vec<ImportCandidateDto>,
+}
+
+/// 导入扫描（S1c 向导第 1 步：不触库、不解锁，纯解析 + 三级去重）
+#[tauri::command]
+fn import_scan(kind: String, path: Option<String>) -> Result<ImportScanDto, String> {
+    let findings = parse_import_findings(&kind, path.as_deref())?;
+    let report = sp_cli::importer::build_candidates(findings);
+    Ok(ImportScanDto {
+        total: report.total,
+        unique: report.unique,
+        l1_duplicates: report.l1_duplicates,
+        l2_merged: report.l2_merged,
+        l3_conflicts: report.l3_conflicts,
+        manual_review: report.manual_review,
+        candidates: report
+            .candidates
+            .iter()
+            .map(|m| ImportCandidateDto {
+                title: m.title.clone(),
+                notes: m.notes.clone(),
+                password_len: m.password.as_ref().map(|p| p.as_str().len()).unwrap_or(0),
+            })
+            .collect(),
+    })
+}
+
+/// 导入提交（S1c 向导第 2 步：重新解析后经会话 actor 逐条写入 + 单次保存；
+/// 会话锁定即拒绝——与所有写路径同门禁）
+#[tauri::command]
+fn import_commit(
+    state: State<SessionState>,
+    kind: String,
+    path: Option<String>,
+) -> Result<usize, String> {
+    let findings = parse_import_findings(&kind, path.as_deref())?;
+    let report = sp_cli::importer::build_candidates(findings);
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .import_commit(report.candidates)
+}
+
+/// 导出结果（归档路径 + 摘要）
+#[derive(serde::Serialize)]
+struct ExportArchiveOut {
+    path: String,
+    summary: ExportSummaryDto,
+}
+
+/// 导出加密归档（S1c：口令两遍输入 → 系统保存对话框 → 会话凭据导出 →
+/// 限权收敛。passphrase 仅存在于本次调用栈，不落持久层）
+#[tauri::command]
+fn export_archive(
+    app: tauri::AppHandle,
+    state: State<SessionState>,
+    passphrase: String,
+    passphrase2: String,
+) -> Result<ExportArchiveOut, String> {
+    if passphrase.is_empty() {
+        return Err("归档口令不能为空".into());
+    }
+    if passphrase != passphrase2 {
+        return Err("两次口令不一致".into());
+    }
+    use tauri_plugin_dialog::DialogExt;
+    let Some(target) = app
+        .dialog()
+        .file()
+        .set_file_name("sp-export.age")
+        .blocking_save_file()
+    else {
+        return Err("已取消".into());
+    };
+    let path = match target {
+        tauri_plugin_dialog::FilePath::Path(p) => p,
+        other => return Err(format!("unsupported dialog target: {other:?}")),
+    };
+    let summary = state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .export_archive(path.to_string_lossy().as_ref(), &passphrase)?;
+    sp_core::fsperms::restrict(&path)
+        .map_err(|e| format!("归档限权收敛失败（文件已写出）：{e}"))?;
+    Ok(ExportArchiveOut {
+        path: path.to_string_lossy().to_string(),
+        summary,
+    })
+}
+
+/// 注入启动（S1c：从 GUI 以 sp run 语义启动应用——进程生成经 sp-cli::spawner
+/// 单源，env 值从会话条目解析，秘密不落盘）
+#[tauri::command]
+fn launch_with_env(
+    state: State<SessionState>,
+    program: String,
+    args: Vec<String>,
+    title: String,
+    fields: Vec<String>,
+) -> Result<u32, String> {
+    if program.trim().is_empty() {
+        return Err("程序路径不能为空".into());
+    }
+    if fields.is_empty() {
+        return Err("至少选择一个注入字段".into());
+    }
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .launch_with_env(&program, &args, &title, &fields)
+}
+
+/// 注入启动的程序浏览（系统打开对话框；取消返回空串）
+#[tauri::command]
+fn pick_file(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(target) = app.dialog().file().blocking_pick_file() else {
+        return Ok(String::new());
+    };
+    match target {
+        tauri_plugin_dialog::FilePath::Path(p) => Ok(p.to_string_lossy().to_string()),
+        other => Err(format!("unsupported dialog target: {other:?}")),
+    }
+}
+
+/// 导入来源目录浏览（files 类；取消返回空串）
+#[tauri::command]
+fn pick_folder(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(target) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(String::new());
+    };
+    match target {
+        tauri_plugin_dialog::FilePath::Path(p) => Ok(p.to_string_lossy().to_string()),
+        other => Err(format!("unsupported dialog target: {other:?}")),
+    }
 }
 
 fn main() {
@@ -92,13 +448,32 @@ fn main() {
 
     tauri::Builder::default()
         .manage(SessionState(Arc::clone(&session)))
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             session_status,
             unlock,
             lock_now,
             touch,
+            set_editing,
+            keyfile_pick,
             get_settings,
-            save_settings
+            save_settings,
+            entry_list,
+            entry_get,
+            entry_totp,
+            entry_create,
+            entry_edit,
+            entry_delete,
+            attachment_list,
+            attachment_add,
+            attachment_download,
+            clip_copy,
+            import_scan,
+            import_commit,
+            export_archive,
+            launch_with_env,
+            pick_file,
+            pick_folder
         ])
         .setup(move |app| {
             // 窗口策略：托盘实例启动即弹解锁窗（DR-013"每次进程启动首次主密码"）；

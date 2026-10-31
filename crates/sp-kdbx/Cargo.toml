@@ -12,6 +12,11 @@ thiserror.workspace = true
 zeroize.workspace = true
 base64.workspace = true
 getrandom.workspace = true
+# 导出核心（S1c 自 sp-cli 下沉：GUI 经 kffi 会话凭据复用）
+age.workspace = true
+zip.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 getrandom.workspace = true

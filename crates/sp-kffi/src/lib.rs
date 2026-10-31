@@ -67,6 +67,8 @@ pub struct FfiEntry {
     pub url: Option<String>,
     pub notes: Option<String>,
     pub otp: Option<String>,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
 }
 
 /// 条目摘要（不含密码/TOTP，对齐 sp_kdbx::EntrySummary / SP-F-706 语义）
@@ -76,6 +78,8 @@ pub struct FfiEntrySummary {
     pub username: Option<String>,
     pub url: Option<String>,
     pub has_otp: bool,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
 }
 
 /// 自定义字段（语义 = sp_core::CustomField；protected 的存储限制见 sp-kdbx 模块文档）
@@ -96,6 +100,25 @@ pub struct FfiEntryDraft {
     pub notes: Option<String>,
     pub otp: Option<String>,
     pub custom_fields: Vec<FfiCustomField>,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
+}
+
+/// 条目全文完整读回（**仅 Rust 面，不经 UniFFI 导出**）。
+/// 动机：FfiEntry 读回面不含 custom_fields（v0.1 FFI 限制）——桌面 GUI 编辑若以
+/// FfiEntry 回写会清空自定义字段（design_docs/15 §9 同款已知限制）。本类型含
+/// custom_fields，供 desktop GUI 编辑保真；不含 uniffi derive → Kotlin 绑定零漂移。
+#[derive(Debug, Clone)]
+pub struct FfiEntryFull {
+    pub title: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub url: Option<String>,
+    pub notes: Option<String>,
+    pub otp: Option<String>,
+    pub custom_fields: Vec<FfiCustomField>,
+    /// 标签分类（SP-F-108，S1b-2）
+    pub tags: Vec<String>,
 }
 
 /// 统一错误面（映射 sp_core::SpError 子集；凭据语义不细化以防侧信道，SP-F-107）
@@ -141,6 +164,29 @@ fn ffi_entry(m: EntryModel) -> FfiEntry {
         url: m.url,
         notes: m.notes,
         otp: m.otp,
+        tags: m.tags,
+    }
+}
+
+/// 完整读回映射（含 custom_fields；仅 Rust 面消费，design_docs/16 v1.2）
+fn ffi_entry_full(m: EntryModel) -> FfiEntryFull {
+    FfiEntryFull {
+        title: m.title,
+        username: m.username,
+        password: m.password.map(|p| p.as_str().to_string()),
+        url: m.url,
+        notes: m.notes,
+        otp: m.otp,
+        custom_fields: m
+            .custom_fields
+            .into_iter()
+            .map(|f| FfiCustomField {
+                name: f.name,
+                value: f.value.as_str().to_string(),
+                protected: f.protected,
+            })
+            .collect(),
+        tags: m.tags,
     }
 }
 
@@ -161,6 +207,7 @@ fn draft_model(d: FfiEntryDraft) -> EntryModel {
             })
             .collect(),
         otp: d.otp,
+        tags: d.tags,
     }
 }
 
@@ -239,12 +286,27 @@ enum VaultCmd {
         title: String,
         resp: Res<FfiEntry>,
     },
+    /// 完整读回（仅 Rust 面：FindEntryFull → FfiEntryFull，含 custom_fields）
+    FindEntryFull {
+        title: String,
+        resp: Res<FfiEntryFull>,
+    },
     ListSummaries {
         resp: Res<Vec<FfiEntrySummary>>,
     },
     TotpNow {
         title: String,
         resp: Res<String>,
+    },
+    /// 删除条目（仅 Rust 面：语义 = sp_kdbx::delete_entry）
+    DeleteEntry {
+        title: String,
+        resp: Res<()>,
+    },
+    /// 列条目附件名（仅 Rust 面：语义 = sp_kdbx::list_attachments，GUI 附件管理）
+    ListAttachments {
+        title: String,
+        resp: Res<Vec<String>>,
     },
     AddEntry {
         draft: FfiEntryDraft,
@@ -264,6 +326,12 @@ enum VaultCmd {
     SaveSession {
         path: String,
         resp: Res<()>,
+    },
+    /// 导出加密归档（S1c：GUI 导出经会话凭据复用 CLI 同源实现；Rust-only 面）
+    ExportEncrypted {
+        path: String,
+        passphrase: String,
+        resp: Res<sp_kdbx::export::ExportSummary>,
     },
     AddAttachment {
         title: String,
@@ -314,6 +382,20 @@ fn vault_worker(
                     .map(ffi_entry)
                     .map_err(FfiError::from),
             ),
+            VaultCmd::FindEntryFull { title, resp } => respond(
+                resp,
+                sp_kdbx::find_entry(&db, &title)
+                    .map(ffi_entry_full)
+                    .map_err(FfiError::from),
+            ),
+            VaultCmd::DeleteEntry { title, resp } => respond(
+                resp,
+                sp_kdbx::delete_entry(&mut db, &title).map_err(FfiError::from),
+            ),
+            VaultCmd::ListAttachments { title, resp } => respond(
+                resp,
+                sp_kdbx::list_attachments(&db, &title).map_err(FfiError::from),
+            ),
             VaultCmd::ListSummaries { resp } => respond(
                 resp,
                 Ok(sp_kdbx::list_entry_summaries(&db)
@@ -323,6 +405,7 @@ fn vault_worker(
                         username: s.username,
                         url: s.url,
                         has_otp: s.has_otp,
+                        tags: s.tags,
                     })
                     .collect()),
             ),
@@ -351,6 +434,19 @@ fn vault_worker(
                 resp,
                 sp_kdbx::save_atomic(&db, std::path::Path::new(&path), &session_factors)
                     .map_err(FfiError::from),
+            ),
+            VaultCmd::ExportEncrypted {
+                path,
+                passphrase,
+                resp,
+            } => respond(
+                resp,
+                sp_kdbx::export::export_encrypted_archive(
+                    &db,
+                    std::path::Path::new(&path),
+                    &passphrase,
+                )
+                .map_err(FfiError::from),
             ),
             VaultCmd::AddAttachment {
                 title,
@@ -507,6 +603,58 @@ impl Vault {
         let (tx, rx) = channel();
         self.tx
             .send(VaultCmd::Close { resp: tx })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+}
+
+// ---------- Rust-only 面（不经 UniFFI 导出；desktop GUI 写路径专用） ----------
+// 本块方法不出现在 Kotlin/Python 绑定中（无 #[uniffi::export]）——桌面以 Rust 依赖
+// 方式使用 sp-kffi，直接调用；Android 侧不受影响，绑定漂移检查零变化。
+impl Vault {
+    /// 完整读回（含 custom_fields）：GUI 编辑保真前提（FfiEntry 读回面不含
+    /// custom_fields，直接回写会清空——design_docs/15 §9 已知限制的桌面侧解法）。
+    pub fn find_entry_full(&self, title: String) -> Result<FfiEntryFull, FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::FindEntryFull { title, resp: tx })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 删除条目（语义 = sp_kdbx::delete_entry；保存需另调 save/save_session）
+    pub fn delete_entry(&self, title: String) -> Result<(), FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::DeleteEntry { title, resp: tx })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 列条目附件名（语义 = sp_kdbx::list_attachments；GUI 附件管理）
+    pub fn list_attachments(&self, title: String) -> Result<Vec<String>, FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::ListAttachments { title, resp: tx })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 导出加密归档（S1c：复用工作线程内驻留的会话凭据写库导出，DR-012 A1 同源；
+    /// passphrase 由 GUI 对话框两遍输入后合一传入，不落持久层。锁定后返回
+    /// Format("vault worker unavailable")。）
+    pub fn export_encrypted(
+        &self,
+        path: String,
+        passphrase: String,
+    ) -> Result<sp_kdbx::export::ExportSummary, FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::ExportEncrypted {
+                path,
+                passphrase,
+                resp: tx,
+            })
             .map_err(|_| worker_unavailable())?;
         rx.recv().map_err(|_| worker_unavailable())?
     }

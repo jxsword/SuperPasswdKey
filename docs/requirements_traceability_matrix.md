@@ -1,17 +1,18 @@
 # 需求追踪矩阵（Requirements Traceability Matrix）
 
-- SRS 版本：V1.4（2026-10-30；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
+- SRS 版本：V1.12（2026-10-31；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
 - 状态图例：🟢 已覆盖｜🟡 部分（后置项注明）｜⚪ 计划中
 
 | 需求编号 | 需求标题 | 来源（基线/DR） | 设计文档 | 测试用例 | 状态 |
 |---|---|---|---|---|---|
 | SP-F-101 | 库初始化 | B1/B2/B3, DR-003 | 01, 02 | sp-kdbx 单测/roundtrip 对拍 + `sp init` CLI 实测（2026-10-29 本机建库全流程，含 KDF 校准/keyfile 生成/配置回写） | 🟢 |
-| SP-F-102 | 条目 CRUD（全字段加密） | B1 | 01, 02, 03 | sp-kdbx 单测（add/find/list/delete）+ KeePassXC roundtrip 对拍 + CLI item 族实测（2026-10-29/30） | 🟢 |
-| SP-F-103 | 修改历史 | B1 | 02 | sp-kdbx edit_entry 单测（update_history 压栈）；CLI 暂无 edit 入口（FFI/Android 面已用：SP-F-805 更新路径 2026-10-29） | 🟢 CLI 入口缺 |
+| SP-F-102 | 条目 CRUD（全字段加密） | B1 | 01, 02, 03 | sp-kdbx 单测（add/find/list/delete + 同名 --index 寻址 + **受保护自定义字段 save/reload 保真**）+ KeePassXC roundtrip 对拍（**含受保护属性掩码/解掩码互操作**）+ CLI item 族实测（2026-10-29/30）+ item edit 纯函数单测（validate/apply patch，2026-10-31） | 🟢 |
+| SP-F-103 | 修改历史 | B1 | 02 | sp-kdbx edit_entry 单测（update_history 压栈；indexed 面 history 语义随 edit_entry_at 单测）；**CLI edit 入口落地（2026-10-31，`sp item edit` patch 语义，DR-016 同批）**；FFI/Android 面已用（SP-F-805 更新路径 2026-10-29）；GUI edit 入口落地（SP-F-909，S1b-1） | 🟢 |
 | SP-F-104 | 附件（add/list/get 命令族） | B21 | 02, 手册 | e2e：1MB add→list→get 双通道往返无损 + 同名覆盖 + 错误码（3/3/2）（2026-10-29，`sp attachment`）；CLI 冒烟实测通过；KeePassXC 对拍（roundtrip.rs 既有） | 🟢 |
 | SP-F-105 | 解锁（双因子，无跨进程会话） | B3, 冲刺复审#1 | 01, 03 | 错密码/keyfile 缺失 → 退出码 2（session 单测）；zeroize 审查；每命令独立解锁实测 | 🟢 |
 | SP-F-106 | 单库与默认库配置 | 冲刺复审#4 | 03 | config.toml default_db/keyfile 解析单测 + init 回写实测（2026-10-29） | 🟢 |
 | SP-F-107 | 库兼容与损坏处理 | derived | 02 | 损坏库三类样例测试 + KDBX4 兼容（keepassxc roundtrip）+ 基线哈希外部修改检测（integrity 单测） | 🟢 |
+| SP-F-108 | 标签分类（KDBX4 原生 Tags 全栈，S1b-2） | 用户需求 | 01, 02, 16 | sp-core 校验单测（空白标签拒绝）+ sp-kdbx roundtrip + sp-kffi e2e（创建/编辑覆写/摘要携带，2026-10-31）+ desktop session 测试 + vitest（表单解析/徽标过滤）+ Kotlin 绑定重生入库（drift check 对齐）；CLI 实测待随手册验收 | 🟢 |
 | SP-F-201 | 命令族 | B5 | 03, 手册 | `sp --help` 全命令面单测化核对（手册覆盖脚本 24 flag 零缺失，2026-10-30）+ 全命令 CLI 实测 | 🟢 |
 | SP-F-202 | 单值读取（ACL 0600） | B5 | 03 | read_value 字段解析单测 + --out-file ACL（icacls 展开修复 2026-10-29 实测生效） | 🟢 |
 | SP-F-203 | 剪贴板（超时清除） | B20 | 03 | clip 实测（阻塞/超时清除/Win+V 提示文案）；arboard 单测 | 🟢 |
@@ -52,12 +53,17 @@
 | SP-F-803 | 系统 Autofill 对接（M1） | DR-009 | 14 | 原生/包名路径真机+模拟器 e2e 全通 ✅；认证回路全链路回归 PASS（2026-10-28，含 presentation 修复）；web 路径待非 MIUI 真机（R14-1/3） | 🟡 |
 | SP-F-804 | Android 机密边界（不落 SharedPreferences/日志） | 红线#4#5 | 13, 14 | 代码审查（日志仅记值长度/类别，无机密落盘路径；含首建流程复查 2026-10-28；含保存路径 intent extra 边界复查 2026-10-29）；logcat 实测零凭据值泄漏 | 🟢 |
 | SP-F-805 | Android Autofill 保存场景（M2，DR-012 A1） | DR-012 | 14 §7 | 模拟器演示链路全通（新凭据→系统保存建议→确认入库→进程重启重开库→数据集可读；拒绝路径零写入，2026-10-29）；e2e 断言（锁库后 saveSession 拒绝 + 保存闭环重开读回）进 TestActivity 全绿；sp-kffi 主机侧测试 save_session 语义覆盖（73 测试基线） | 🟢 |
-| SP-F-901 | 桌面托盘壳（Tauri 常驻/关窗隐藏/菜单） | DR-013 | 15 | `cargo tauri build` 本地实测 + CI desktop job（fmt/clippy/test/build）；菜单行为手工验收 | 🟡 手工项待用户 |
+| SP-F-901 | 桌面托盘壳（Tauri 常驻/关窗隐藏/菜单） | DR-013, DR-014 | 15, 16 | `cargo tauri build` 本地实测 + CI desktop job（fmt/clippy/test/build）；菜单行为手工验收 | 🟡 手工项待用户 |
 | SP-F-902 | 桌面解锁会话（每进程首次主密码/因子留驻 actor） | DR-013, 红线#5 | 15 | unlock/错密码/锁库单测（复用 sp-kffi actor 语义，批次 1 已建）；真实 kdbx 解锁（步骤 7 本地实测） | 🟢 |
 | SP-F-903 | 桌面双超时（idle/absolute 独立可配，到期锁库） | DR-013 | 15 | idle=0 注入单测（首访问即锁）+ 重解锁重置计时单测（批次 1）+ NM watcher sp.event 通知（步骤 7） | 🟢 |
-| SP-F-904 | 桌面设置持久化（settings.json 非机密/损坏回落） | DR-013 | 15 | roundtrip/损坏回落/BOM 单测（2026-10-29）；落盘内容人工核对 | 🟢 |
+| SP-F-904 | 桌面设置持久化（settings.json 非机密/损坏回落） | DR-013 | 15 | roundtrip/损坏回落/BOM 单测（2026-10-29）；落盘内容人工核对；**keyfile 路径记忆**（roundtrip + 旧版字段回落单测 2026-10-31；浏览/记忆手工验收） | 🟢 |
 | SP-F-905 | 桌面开机自启（HKCU Run 写删/偏好对账） | DR-013 | 15 | 独立值名注册表 roundtrip 单测（2026-10-29）；`reg query` 验证为用户手工验收项 | 🟡 手工项待用户 |
 | SP-F-906 | NM host 单进程嵌入（协议库化复用/locked 弹窗/EOF 退出） | DR-013 | 15 | 模拟 NM 握手测试全链路（serve+适配器：ping→解锁→get-logins→get-secret→lock→locked，2026-10-29）；register.ps1 -Target desktop 双轨；旧 sp-nmhost 回归（30 测试不变）；手工 Chrome 验证待用户 | 🟡 手工项待用户 |
 | SP-F-907 | 桌面浏览器填充链路（URL 匹配/单条取密，纪律单源） | DR-013 | 15 | 匹配命中+子串反例+响应无密码+锁定拒绝断言（模拟握手测试内，2026-10-29） | 🟢 |
+| SP-F-908 | 桌面 GUI 条目浏览（列表/搜索/详情只读/TOTP/复制，S1a MVP） | DR-014 | 16 | 组件测试（vitest：列表渲染/搜索过滤/详情/TOTP 轮询/复制调用）+ Rust session 测试扩展（entry_list/entry_get/entry_totp/clip_copy 惰性锁库语义）；CI desktop job 全绿；真实库手工验收待用户 | 🟢（自动化）/🟡 手工项待用户 |
+| SP-F-909 | 桌面 GUI 条目写路径（创建/编辑/删除 + 显示/放大显示，S1b-1；S1b-2b 扩展自定义字段编辑 UI） | DR-014, SP-F-103 | 16 | kffi find_entry_full/delete_entry 单测（custom_fields 保真 roundtrip + 删除 NotFound）；Rust session 测试（创建/编辑改名/删除/锁定拒绝/错 otp 拒绝/空白标签拒绝）；vitest（表单校验对齐 CLI/自定义字段行增删与保留名校验/删除确认/放大显示模态/显示切换）；真实库手工验收待用户 | 🟢（自动化）/🟡 手工项待用户 |
+| SP-F-910 | 桌面 GUI 附件管理（列表/添加/下载，S1b-2b） | SP-F-104, DR-014 | 16 | kffi list_attachments e2e + desktop session 测试（add/list/get roundtrip + 同名覆盖 + 锁定拒绝）；vitest（附件渲染/下载调用/添加流）；下载限权 `icacls` 核对为手工项 | 🟢（自动化）/🟡 手工项待用户 |
+| SP-F-911 | 桌面 GUI 导入/导出向导（S1c） | SP-F-401~403, SP-F-501~503, DR-014 | 16 | desktop session 测试（import 写入/持久化/锁定拒绝、export 密文性/锁定拒绝）+ vitest（扫描报告/提交/口令校验）；导入结果 KeePassXC 可见为手工项 | 🟢（自动化）/🟡 手工项待用户 |
+| SP-F-912 | 桌面 GUI 注入启动器（S1c） | SP-F-301, DR-014 | 16 | desktop session 测试（缺字段/受保护变量拒绝/锁定拒绝/spawn 返回 PID）+ vitest（字段选择/参数透传/错误展示）；实际应用启动为手工项 | 🟢（自动化）/🟡 手工项待用户 |
 
 \* 测试用例编号在实现阶段（H3/H4/H5/H6/H7）按此前缀回填；round-trip 对拍测试覆盖 SP-F-101/102/103/104/601 的互操作维度。

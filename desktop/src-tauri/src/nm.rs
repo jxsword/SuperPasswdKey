@@ -116,9 +116,10 @@ impl NmActionSession for DesktopNmSession {
     }
 
     /// 保存登录凭据（SP-F-708）：凭据因子留驻 actor（DR-012 A1），写库用
-    /// save_session 零凭据入参。更新路径与 Android M2 同口径：notes/otp 经
-    /// find_entry 保真；**自定义字段清空**（FfiEntry 读回面不含 custom_fields，
-    /// v0.1 FFI 限制，design_docs/15 §9 如实声明）。
+    /// save_session 零凭据入参。更新路径与 Android M2 同口径：notes/otp/
+    /// custom_fields 经 find_entry_full 完整读回保真（S3 审计修正 2026-10-31：
+    /// 原经 FfiEntry 读回会清空自定义字段，design_docs/15 §9 的 v0.1 限制在
+    /// 桌面侧已由 Rust-only 完整读回面解除）。
     fn save_login(
         &self,
         page_url: &str,
@@ -142,14 +143,19 @@ impl NmActionSession for DesktopNmSession {
             notes: None,
             otp: None,
             custom_fields: vec![],
+            tags: vec![],
         };
         let outcome = match sp_nmhost::actions::plan_save_login(&summaries, host, username) {
             SavePlan::Update { title } => {
-                // notes/otp 保真：从读回面带出（custom_fields 见上注）
+                // notes/otp/custom_fields 保真：经 find_entry_full 完整读回。
+                // S3 审计修正（2026-10-31）：原走 find_entry（FfiEntry 面不含
+                // custom_fields）导致扩展保存登录时清空既有自定义字段——与 GUI
+                // 编辑路径（同用 find_entry_full）口径拉齐。
                 let mut d = draft(title.clone());
-                if let Ok(e) = v.find_entry(title.clone()) {
+                if let Ok(e) = v.find_entry_full(title.clone()) {
                     d.notes = e.notes;
                     d.otp = e.otp;
+                    d.custom_fields = e.custom_fields;
                 }
                 v.edit_entry(title.clone(), d)
                     .map_err(|e| ActionError::new("internal", describe(&e)))?;
@@ -462,5 +468,69 @@ mod tests {
                 "id": "demo.local", "field": "password"}),
         );
         assert_eq!(resp["data"]["value"], "pw2");
+    }
+
+    /// S3 审计回归（2026-10-31）：扩展保存登录（Update 路径）不得清空既有
+    /// 自定义字段——保真经 find_entry_full 完整读回。
+    #[test]
+    fn save_login_update_preserves_custom_fields() {
+        let f = Fixture::new("savelogin-cf");
+        let b = bridge(&f);
+        roundtrip(
+            &b,
+            serde_json::json!({"action": "sp.unlock", "requestID": "1", "password": TEST_DB_PASSWORD}),
+        );
+        // 先经扩展 save-login 建条目（Insert → demo.local）
+        let resp = roundtrip(
+            &b,
+            serde_json::json!({"action": "sp.save-login", "requestID": "2",
+                "url": "https://demo.local/login", "username": "u1", "password": "pw1"}),
+        );
+        assert_eq!(resp["data"]["saved"], "added");
+        // 再经直接编辑给条目挂上自定义字段（模拟 GUI 先建后补字段的时序）
+        {
+            let mut s = b.session.lock().expect("session");
+            let v = s.active_vault().expect("vault");
+            v.edit_entry(
+                "demo.local".to_string(),
+                sp_kffi::FfiEntryDraft {
+                    title: "demo.local".into(),
+                    username: Some("u1".into()),
+                    password: Some("pw1".into()),
+                    url: Some("https://demo.local/login".into()),
+                    notes: Some("keep-me".into()),
+                    otp: None,
+                    custom_fields: vec![sp_kffi::FfiCustomField {
+                        name: "api_key".into(),
+                        value: "k-1".into(),
+                        protected: false,
+                    }],
+                    tags: vec![],
+                },
+            )
+            .expect("seed custom fields");
+            v.save_session(f.0.to_string_lossy().to_string())
+                .expect("seed save");
+        }
+        // 扩展保存登录（同 host+user → Update 路径）
+        let resp = roundtrip(
+            &b,
+            serde_json::json!({"action": "sp.save-login", "requestID": "3",
+                "url": "https://demo.local/x", "username": "u1", "password": "pw2"}),
+        );
+        assert_eq!(resp["data"]["saved"], "updated");
+        // 完整读回：custom_fields 与 notes 均在
+        let mut s = b.session.lock().expect("session");
+        let v = s.active_vault().expect("vault");
+        let full = v
+            .find_entry_full("demo.local".to_string())
+            .expect("readback");
+        assert_eq!(
+            full.custom_fields.len(),
+            1,
+            "custom fields must survive: {full:?}"
+        );
+        assert_eq!(full.custom_fields[0].name, "api_key");
+        assert_eq!(full.notes.as_deref(), Some("keep-me"));
     }
 }
