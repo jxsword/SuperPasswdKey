@@ -17,6 +17,12 @@ export interface EntrySummary {
   has_otp: boolean;
 }
 
+export interface CustomField {
+  name: string;
+  value: string;
+  protected: boolean;
+}
+
 export interface EntryDetail {
   title: string;
   username: string | null;
@@ -24,6 +30,18 @@ export interface EntryDetail {
   url: string | null;
   notes: string | null;
   otp: string | null;
+  custom_fields: CustomField[];
+}
+
+/** 条目草稿（创建/编辑共用；编辑时 custom_fields 原样回传保真） */
+export interface EntryDraft {
+  title: string;
+  username: string | null;
+  password: string | null;
+  url: string | null;
+  notes: string | null;
+  otp: string | null;
+  custom_fields: CustomField[];
 }
 
 export interface SettingsFile {
@@ -51,6 +69,16 @@ export const entryList = () => invoke<EntrySummary[]>("entry_list");
 export const entryGet = (title: string) => invoke<EntryDetail>("entry_get", { title });
 
 export const entryTotp = (title: string) => invoke<string>("entry_totp", { title });
+
+/** 新建条目（Rust 侧 add_entry + save_session；同名允许，对齐 CLI 口径） */
+export const entryCreate = (draft: EntryDraft) => invoke<void>("entry_create", { draft });
+
+/** 编辑条目（按 oldTitle 定位；标题可经 draft.title 改写；旧快照进 history） */
+export const entryEdit = (oldTitle: string, draft: EntryDraft) =>
+  invoke<void>("entry_edit", { oldTitle, draft });
+
+/** 删除条目 */
+export const entryDelete = (title: string) => invoke<void>("entry_delete", { title });
 
 /** 复制到剪贴板（Rust 侧 arboard + 30s 超时清空，对齐 CLI clip 语义） */
 export const clipCopy = (text: string) => invoke<void>("clip_copy", { text });

@@ -8,7 +8,9 @@ const api = vi.hoisted(() => ({
   entryGet: vi.fn(),
   entryTotp: vi.fn(),
   clipCopy: vi.fn(),
-  touch: vi.fn(),
+  entryCreate: vi.fn(),
+  entryEdit: vi.fn(),
+  entryDelete: vi.fn(),
 }));
 
 vi.mock("../src/api", () => ({
@@ -16,6 +18,9 @@ vi.mock("../src/api", () => ({
   entryGet: api.entryGet,
   entryTotp: api.entryTotp,
   clipCopy: api.clipCopy,
+  entryCreate: api.entryCreate,
+  entryEdit: api.entryEdit,
+  entryDelete: api.entryDelete,
 }));
 
 const entries: EntrySummary[] = [
@@ -60,6 +65,7 @@ describe("MainView", () => {
       url: "https://github.com",
       notes: null,
       otp: null,
+      custom_fields: [],
     });
     const wrapper = mount(MainView, { props: { touch: () => {} } });
     await flushPromises();
@@ -68,5 +74,51 @@ describe("MainView", () => {
     expect(api.entryGet).toHaveBeenCalledWith("GitHub");
     expect(wrapper.text()).toContain("GitHub");
     expect(wrapper.text()).toContain("●●●●●●●●");
+  });
+
+  it("「新的项目」→ 创建成功后刷新列表并选中新条目", async () => {
+    const wrapper = mount(MainView, { props: { touch: () => {} } });
+    await flushPromises();
+    await wrapper.find("button.new-entry").trigger("click");
+    const modal = wrapper.find(".form-panel");
+    expect(modal.exists()).toBe(true);
+    expect(modal.text()).toContain("新的项目");
+    api.entryCreate.mockResolvedValue(undefined);
+    api.entryList.mockResolvedValue([
+      ...entries,
+      { title: "Brand New", username: null, url: null, has_otp: false },
+    ]);
+    await modal.find("#f-title").setValue("Brand New");
+    await modal.find("button.primary").trigger("click");
+    await flushPromises();
+    expect(api.entryCreate).toHaveBeenCalled();
+    expect(wrapper.find(".form-panel").exists()).toBe(false);
+    // 列表刷新且新条目选中（详情加载）
+    expect(wrapper.text()).toContain("Brand New");
+    expect(api.entryGet).toHaveBeenCalledWith("Brand New");
+    wrapper.unmount();
+  });
+
+  it("删除后清空详情并刷新列表", async () => {
+    api.entryGet.mockResolvedValue({
+      title: "GitHub",
+      username: "me",
+      password: "secret",
+      url: null,
+      notes: null,
+      otp: null,
+      custom_fields: [],
+    });
+    api.entryDelete.mockResolvedValue(undefined);
+    const wrapper = mount(MainView, { props: { touch: () => {} } });
+    await flushPromises();
+    await wrapper.findAll("button.entry-item")[0].trigger("click");
+    await flushPromises();
+    await wrapper.findAll("button.action")[1].trigger("click"); // 删除
+    await wrapper.find("button.primary.danger").trigger("click");
+    await flushPromises();
+    expect(api.entryDelete).toHaveBeenCalledWith("GitHub");
+    expect(wrapper.text()).toContain("从左侧选择一个条目查看详情");
+    wrapper.unmount();
   });
 });

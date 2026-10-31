@@ -98,6 +98,21 @@ pub struct FfiEntryDraft {
     pub custom_fields: Vec<FfiCustomField>,
 }
 
+/// 条目全文完整读回（**仅 Rust 面，不经 UniFFI 导出**）。
+/// 动机：FfiEntry 读回面不含 custom_fields（v0.1 FFI 限制）——桌面 GUI 编辑若以
+/// FfiEntry 回写会清空自定义字段（design_docs/15 §9 同款已知限制）。本类型含
+/// custom_fields，供 desktop GUI 编辑保真；不含 uniffi derive → Kotlin 绑定零漂移。
+#[derive(Debug, Clone)]
+pub struct FfiEntryFull {
+    pub title: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub url: Option<String>,
+    pub notes: Option<String>,
+    pub otp: Option<String>,
+    pub custom_fields: Vec<FfiCustomField>,
+}
+
 /// 统一错误面（映射 sp_core::SpError 子集；凭据语义不细化以防侧信道，SP-F-107）
 #[derive(uniffi::Error, Debug, thiserror::Error)]
 pub enum FfiError {
@@ -141,6 +156,27 @@ fn ffi_entry(m: EntryModel) -> FfiEntry {
         url: m.url,
         notes: m.notes,
         otp: m.otp,
+    }
+}
+
+/// 完整读回映射（含 custom_fields；仅 Rust 面消费，design_docs/16 v1.2）
+fn ffi_entry_full(m: EntryModel) -> FfiEntryFull {
+    FfiEntryFull {
+        title: m.title,
+        username: m.username,
+        password: m.password.map(|p| p.as_str().to_string()),
+        url: m.url,
+        notes: m.notes,
+        otp: m.otp,
+        custom_fields: m
+            .custom_fields
+            .into_iter()
+            .map(|f| FfiCustomField {
+                name: f.name,
+                value: f.value.as_str().to_string(),
+                protected: f.protected,
+            })
+            .collect(),
     }
 }
 
@@ -239,12 +275,22 @@ enum VaultCmd {
         title: String,
         resp: Res<FfiEntry>,
     },
+    /// 完整读回（仅 Rust 面：FindEntryFull → FfiEntryFull，含 custom_fields）
+    FindEntryFull {
+        title: String,
+        resp: Res<FfiEntryFull>,
+    },
     ListSummaries {
         resp: Res<Vec<FfiEntrySummary>>,
     },
     TotpNow {
         title: String,
         resp: Res<String>,
+    },
+    /// 删除条目（仅 Rust 面：语义 = sp_kdbx::delete_entry）
+    DeleteEntry {
+        title: String,
+        resp: Res<()>,
     },
     AddEntry {
         draft: FfiEntryDraft,
@@ -313,6 +359,16 @@ fn vault_worker(
                 sp_kdbx::find_entry(&db, &title)
                     .map(ffi_entry)
                     .map_err(FfiError::from),
+            ),
+            VaultCmd::FindEntryFull { title, resp } => respond(
+                resp,
+                sp_kdbx::find_entry(&db, &title)
+                    .map(ffi_entry_full)
+                    .map_err(FfiError::from),
+            ),
+            VaultCmd::DeleteEntry { title, resp } => respond(
+                resp,
+                sp_kdbx::delete_entry(&mut db, &title).map_err(FfiError::from),
             ),
             VaultCmd::ListSummaries { resp } => respond(
                 resp,
@@ -507,6 +563,30 @@ impl Vault {
         let (tx, rx) = channel();
         self.tx
             .send(VaultCmd::Close { resp: tx })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+}
+
+// ---------- Rust-only 面（不经 UniFFI 导出；desktop GUI 写路径专用） ----------
+// 本块方法不出现在 Kotlin/Python 绑定中（无 #[uniffi::export]）——桌面以 Rust 依赖
+// 方式使用 sp-kffi，直接调用；Android 侧不受影响，绑定漂移检查零变化。
+impl Vault {
+    /// 完整读回（含 custom_fields）：GUI 编辑保真前提（FfiEntry 读回面不含
+    /// custom_fields，直接回写会清空——design_docs/15 §9 已知限制的桌面侧解法）。
+    pub fn find_entry_full(&self, title: String) -> Result<FfiEntryFull, FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::FindEntryFull { title, resp: tx })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 删除条目（语义 = sp_kdbx::delete_entry；保存需另调 save/save_session）
+    pub fn delete_entry(&self, title: String) -> Result<(), FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::DeleteEntry { title, resp: tx })
             .map_err(|_| worker_unavailable())?;
         rx.recv().map_err(|_| worker_unavailable())?
     }

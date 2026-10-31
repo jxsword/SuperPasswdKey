@@ -6,13 +6,25 @@ const api = vi.hoisted(() => ({
   entryGet: vi.fn(),
   entryTotp: vi.fn(),
   clipCopy: vi.fn(),
+  entryDelete: vi.fn(),
 }));
 
 vi.mock("../src/api", () => ({
   entryGet: api.entryGet,
   entryTotp: api.entryTotp,
   clipCopy: api.clipCopy,
+  entryDelete: api.entryDelete,
 }));
+
+const baseDetail = {
+  title: "GitHub",
+  username: "me",
+  password: "s3cret",
+  url: "https://github.com",
+  notes: "some notes",
+  otp: null as string | null,
+  custom_fields: [{ name: "api_key", value: "k-9", protected: false }],
+};
 
 describe("DetailPanel", () => {
   beforeEach(() => {
@@ -20,15 +32,8 @@ describe("DetailPanel", () => {
     vi.useFakeTimers();
   });
 
-  it("渲染条目字段（密码掩码）", async () => {
-    api.entryGet.mockResolvedValue({
-      title: "GitHub",
-      username: "me",
-      password: "s3cret",
-      url: "https://github.com",
-      notes: "some notes",
-      otp: null,
-    });
+  it("渲染条目字段与自定义字段（密码掩码）", async () => {
+    api.entryGet.mockResolvedValue(baseDetail);
     const wrapper = mount(DetailPanel, { props: { title: "GitHub", touch: () => {} } });
     await flushPromises();
     expect(wrapper.text()).toContain("GitHub");
@@ -36,23 +41,50 @@ describe("DetailPanel", () => {
     expect(wrapper.text()).toContain("●●●●●●●●");
     expect(wrapper.text()).not.toContain("s3cret"); // 密码不回显明文
     expect(wrapper.text()).toContain("some notes");
+    expect(wrapper.text()).toContain("api_key"); // 自定义字段只读展示
+    expect(wrapper.text()).toContain("k-9");
+    expect(wrapper.text()).toContain("编辑");
+    expect(wrapper.text()).toContain("删除");
+    wrapper.unmount();
+  });
+
+  it("密码下拉：显示切换明文/掩码", async () => {
+    api.entryGet.mockResolvedValue(baseDetail);
+    const wrapper = mount(DetailPanel, { props: { title: "GitHub", touch: () => {} } });
+    await flushPromises();
+    await wrapper.find("button.chevron").trigger("click");
+    const items = wrapper.findAll("button.menu-item");
+    expect(items.map((i) => i.text())).toEqual(["显示", "放大显示", "复制"]);
+    await items[0].trigger("click");
+    expect(wrapper.text()).toContain("s3cret");
+    await wrapper.find("button.chevron").trigger("click");
+    await wrapper.findAll("button.menu-item")[0].trigger("click");
+    expect(wrapper.text()).not.toContain("s3cret");
+    wrapper.unmount();
+  });
+
+  it("密码下拉：放大显示打开模态，Esc 关闭", async () => {
+    api.entryGet.mockResolvedValue(baseDetail);
+    const wrapper = mount(DetailPanel, { props: { title: "GitHub", touch: () => {} } });
+    await flushPromises();
+    await wrapper.find("button.chevron").trigger("click");
+    await wrapper.findAll("button.menu-item")[1].trigger("click");
+    const modal = wrapper.find(".large-type-overlay");
+    expect(modal.exists()).toBe(true);
+    expect(modal.text()).toContain("s3cret");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await flushPromises();
+    expect(wrapper.find(".large-type-overlay").exists()).toBe(false);
+    wrapper.unmount();
   });
 
   it("有 OTP 时轮询动态码", async () => {
-    api.entryGet.mockResolvedValue({
-      title: "GitHub",
-      username: "me",
-      password: "x",
-      url: null,
-      notes: null,
-      otp: "otpauth://totp/GitHub?secret=JBSWY3DPEHPK3PXP",
-    });
+    api.entryGet.mockResolvedValue({ ...baseDetail, otp: "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP" });
     api.entryTotp.mockResolvedValue("123456");
     const wrapper = mount(DetailPanel, { props: { title: "GitHub", touch: () => {} } });
     await flushPromises();
     expect(api.entryTotp).toHaveBeenCalledTimes(1);
     expect(wrapper.text()).toContain("123456");
-    // 30s 轮询
     vi.advanceTimersByTime(30_000);
     await flushPromises();
     expect(api.entryTotp).toHaveBeenCalledTimes(2);
@@ -60,22 +92,41 @@ describe("DetailPanel", () => {
   });
 
   it("复制按钮调用 clipCopy", async () => {
-    api.entryGet.mockResolvedValue({
-      title: "GitHub",
-      username: "me",
-      password: "s3cret",
-      url: null,
-      notes: null,
-      otp: null,
-    });
+    api.entryGet.mockResolvedValue(baseDetail);
     api.clipCopy.mockResolvedValue(undefined);
     const wrapper = mount(DetailPanel, { props: { title: "GitHub", touch: () => {} } });
     await flushPromises();
-    const copyBtns = wrapper.findAll("button.copy");
-    await copyBtns[0].trigger("click");
+    await wrapper.findAll("button.copy")[0].trigger("click");
     await flushPromises();
     expect(api.clipCopy).toHaveBeenCalledWith("s3cret");
     expect(wrapper.text()).toContain("已复制");
+    wrapper.unmount();
+  });
+
+  it("删除：确认后调用 entryDelete 并上抛 deleted", async () => {
+    api.entryGet.mockResolvedValue(baseDetail);
+    api.entryDelete.mockResolvedValue(undefined);
+    const wrapper = mount(DetailPanel, { props: { title: "GitHub", touch: () => {} } });
+    await flushPromises();
+    await wrapper.findAll("button.action")[1].trigger("click"); // 删除按钮
+    expect(wrapper.find(".confirm-box").exists()).toBe(true);
+    expect(api.entryDelete).not.toHaveBeenCalled();
+    await wrapper.find("button.primary.danger").trigger("click");
+    await flushPromises();
+    expect(api.entryDelete).toHaveBeenCalledWith("GitHub");
+    expect(wrapper.emitted("deleted")).toBeTruthy();
+    wrapper.unmount();
+  });
+
+  it("编辑按钮打开表单模态（预填标题）", async () => {
+    api.entryGet.mockResolvedValue(baseDetail);
+    const wrapper = mount(DetailPanel, { props: { title: "GitHub", touch: () => {} } });
+    await flushPromises();
+    await wrapper.findAll("button.action")[0].trigger("click"); // 编辑按钮
+    const form = wrapper.find(".form-panel");
+    expect(form.exists()).toBe(true);
+    expect(form.text()).toContain("编辑：GitHub");
+    expect((wrapper.find("#f-title").element as HTMLInputElement).value).toBe("GitHub");
     wrapper.unmount();
   });
 
