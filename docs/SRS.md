@@ -1,6 +1,6 @@
 # SuperPasswdKey 软件需求规格说明书（SRS）
 
-- 版本：**V1.6（2026-10-31，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP；V1.6 变更=新增 SP-F-909 桌面 GUI 条目写路径（S1b-1：创建/编辑/删除 + 显示/放大显示交互））**
+- 版本：**V1.7（2026-10-31，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP；V1.6 变更=新增 SP-F-909 桌面 GUI 条目写路径（S1b-1：创建/编辑/删除 + 显示/放大显示交互）；V1.7 变更=新增 SP-F-108 标签分类（KDBX4 原生 Tags 全栈：CLI+GUI，S1b-2））**
 - 开发模型：瀑布（三轮审核：完整性→一致性→可执行性，记录见 `docs/reviews/srs_review.md`）
 - 需求来源：《docs/research/自研需求基线_SuperPasswdKey.md》（B1–B22）、决策记录 DR-001~005、2 天冲刺计划两轮复审修正
 - 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-F-8xx` Android（V1.2 新增）｜`SP-F-9xx` 桌面 Windows（V1.3 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
@@ -85,6 +85,10 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 **SP-F-107 库兼容与损坏处理（P0，derived——格式互操作承诺的必然要求）**
 - 描述：打开非 KDBX4 / 更高格式版本 / 损坏库文件时，给出明确错误（退出码 1）与可行动提示；不静默失败、不尝试修复写回。
 - 验收：损坏文件（截断/坏魔数/未知版本）三类样例的错误路径测试。
+
+**SP-F-108 标签分类（P1，S1b-2，confirmed）**
+- 描述：条目标签基于 KDBX4 原生 Tags 字符串列表（keepass_ng get_tags/get_tags_mut，KeePassXC 互认），全栈打通：EntryModel.tags（校验：trim 后非空）→ CLI（`sp item create --tag` 可重复、`sp item list --tag` 精确过滤大小写不敏感、`sp item get` 显示 Tags 行）→ sp-kffi（FfiEntry/FfiEntrySummary/FfiEntryDraft 携带 tags，UniFFI 面变更须同步重生 Android Kotlin 绑定）→ 桌面 GUI（创建/编辑表单逗号分隔输入、列表标签徽标点击过滤、详情标签行、搜索匹配标签）。
+- 验收：kdbx/core 校验单测；kffi e2e 标签 roundtrip（含编辑覆写）；desktop session 测试（创建/编辑/摘要可见/空白标签拒绝）；CLI 手册同步；KeePassXC 互操作（Tags 为 KDBX4 原生字段，roundtrip 既有对拍覆盖格式层）。
 
 ### 3.2 CLI（SP-F-2xx）
 
