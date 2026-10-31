@@ -83,7 +83,7 @@ jobs:
           # tag 构建收益仅 30-60s，不值得。extension job 的 pnpm 缓存保留。
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable 分支头（S3 审计钉版；升级需有意 bump）
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 分支头（S3 审计钉版；该 action 按工具链分支发布，升级需有意 bump）
         with:
           components: rustfmt, clippy
 
@@ -221,7 +221,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable 分支头（S3 审计钉版；升级需有意 bump）
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 分支头（S3 审计钉版；该 action 按工具链分支发布，升级需有意 bump）
         with:
           components: rustfmt, clippy
 
@@ -293,7 +293,7 @@ jobs:
         run: pnpm test
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable 分支头（S3 审计钉版；升级需有意 bump）
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 分支头（S3 审计钉版；该 action 按工具链分支发布，升级需有意 bump）
         with:
           components: rustfmt, clippy
 
@@ -338,7 +338,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable 分支头（S3 审计钉版；升级需有意 bump）
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 分支头（S3 审计钉版；该 action 按工具链分支发布，升级需有意 bump）
         with:
           components: rustfmt, clippy
 
@@ -391,7 +391,7 @@ jobs:
           df -h /
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable 分支头（S3 审计钉版；升级需有意 bump）
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 分支头（S3 审计钉版；该 action 按工具链分支发布，升级需有意 bump）
 
       - name: Install Android target (on the pinned toolchain)
         run: rustup target add x86_64-linux-android
