@@ -137,6 +137,7 @@ class SaveConfirmActivity : Activity() {
             notes = null,
             otp = null,
             customFields = emptyList(),
+            tags = emptyList(),
         )
         if (existing == null) {
             session.addEntry(draft)
