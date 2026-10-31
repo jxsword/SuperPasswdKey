@@ -6,7 +6,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-/// 设置文件面（serde_json 读写；字段即任务书口径：idle_ms/absolute_ms/autostart）
+/// 设置文件面（serde_json 读写；超时/自启为任务书口径，keyfile_path 为 2026-10-31
+/// 验收反馈新增——路径非机密值（design_docs/15 §6 同口径），解锁成功后自动记忆）
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingsFile {
     /// 空闲锁库超时（毫秒；默认 300_000 对齐 DR-006）
@@ -15,6 +16,10 @@ pub struct SettingsFile {
     pub absolute_ms: u64,
     /// 开机自启偏好（落点为 HKCU Run 注册表值；启动时按本字段对账）
     pub autostart: bool,
+    /// 上次成功解锁使用的 keyfile 路径（空=未使用/无 keyfile；文件不存在时
+    /// get_settings 返回空串但本字段保留——U 盘 keyfile 临时拔出后恢复即复用）
+    #[serde(default)]
+    pub keyfile_path: String,
 }
 
 impl Default for SettingsFile {
@@ -23,6 +28,7 @@ impl Default for SettingsFile {
             idle_ms: 300_000,
             absolute_ms: 1_800_000,
             autostart: false,
+            keyfile_path: String::new(),
         }
     }
 }
@@ -88,6 +94,7 @@ mod tests {
             idle_ms: 60_000,
             absolute_ms: 900_000,
             autostart: true,
+            keyfile_path: "C:\\keys\\vault.keyfile".into(),
         };
         save_to(&p, &s).expect("save");
         assert_eq!(load_from(&p), s);
@@ -109,6 +116,21 @@ mod tests {
     }
 
     #[test]
+    fn legacy_file_without_keyfield_falls_back() {
+        // v0.3.0 settings.json 无 keyfile_path 字段 → serde default 空串，不崩
+        let p = tmp_path("legacy");
+        std::fs::write(
+            &p,
+            r#"{"idle_ms":60000,"absolute_ms":900000,"autostart":false}"#,
+        )
+        .expect("write legacy");
+        let s = load_from(&p);
+        assert_eq!(s.keyfile_path, String::new());
+        assert_eq!(s.idle_ms, 60_000);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
     fn bom_prefixed_file_parses() {
         let p = tmp_path("bom");
         let body = "\u{feff}".to_string()
@@ -116,6 +138,7 @@ mod tests {
                 idle_ms: 1_000,
                 absolute_ms: 2_000,
                 autostart: false,
+                keyfile_path: String::new(),
             })
             .expect("json");
         std::fs::write(&p, body).expect("write");

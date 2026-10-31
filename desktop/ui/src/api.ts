@@ -51,6 +51,8 @@ export interface SettingsFile {
   idle_ms: number;
   absolute_ms: number;
   autostart: boolean;
+  /** 上次成功解锁使用的 keyfile 路径（空=未使用；文件不存在时后端返回空串） */
+  keyfile_path: string;
 }
 
 export const sessionStatus = () => invoke<SessionStatus>("session_status");
@@ -59,6 +61,12 @@ export const unlock = (password: string, keyfile: string | null) =>
   invoke<SessionStatus>("unlock", { password, keyfile });
 
 export const lockNow = () => invoke<SessionStatus>("lock_now");
+
+/** 编辑态开关（EntryFormModal 打开期间暂停 idle 超时，absolute 保留） */
+export const setEditing = (active: boolean) => invoke<void>("set_editing", { active });
+
+/** keyfile 文件浏览（系统对话框；取消返回空串） */
+export const keyfilePick = () => invoke<string>("keyfile_pick");
 
 export const touch = () => invoke<void>("touch");
 

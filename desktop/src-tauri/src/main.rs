@@ -33,7 +33,9 @@ fn session_status(state: State<SessionState>) -> SessionStatus {
     state.0.lock().expect("session poisoned").status()
 }
 
-/// 解锁（password/keyfile 即用即弃：仅本次调用栈，传给 FFI 后随栈帧释放）
+/// 解锁（password/keyfile 即用即弃：仅本次调用栈，传给 FFI 后随栈帧释放）。
+/// 成功后记忆 keyfile 路径到 settings.json（2026-10-31 验收反馈：免每次手输；
+/// 路径非机密值，design_docs/15 §6 同口径）。
 #[tauri::command]
 fn unlock(
     state: State<SessionState>,
@@ -45,7 +47,43 @@ fn unlock(
     session
         .unlock(&db_path, &password, keyfile.as_deref())
         .map_err(|e| describe(&e))?;
+    if let Some(kf) = keyfile.as_deref().filter(|s| !s.is_empty()) {
+        let mut s = settings::load_or_default();
+        s.keyfile_path = kf.to_string();
+        if let Err(e) = settings::save_to(&settings::settings_path(), &s) {
+            eprintln!("[warn] persist keyfile path: {e}"); // 记忆失败不阻断解锁
+        }
+    }
     Ok(session.status())
+}
+
+/// 编辑态开关（EntryFormModal 打开/关闭）：暂停 idle 超时，absolute 保留。
+#[tauri::command]
+fn set_editing(state: State<SessionState>, active: bool) {
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .set_editing(active);
+}
+
+/// keyfile 文件浏览（系统打开对话框，Rust 侧调用 tauri-plugin-dialog）；
+/// 取消返回空串。
+#[tauri::command]
+fn keyfile_pick(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(target) = app
+        .dialog()
+        .file()
+        .add_filter("Keyfile", &["keyfile", "keyx", "*"])
+        .blocking_pick_file()
+    else {
+        return Ok(String::new());
+    };
+    match target {
+        tauri_plugin_dialog::FilePath::Path(p) => Ok(p.to_string_lossy().to_string()),
+        other => Err(format!("unsupported dialog target: {other:?}")),
+    }
 }
 
 #[tauri::command]
@@ -60,15 +98,24 @@ fn touch(state: State<SessionState>) {
     state.0.lock().expect("session poisoned").touch();
 }
 
-/// 读取设置文件（损坏/缺失已回落默认值；仅非机密字段）
+/// 读取设置文件（损坏/缺失已回落默认值；仅非机密字段）。
+/// keyfile_path 指向的文件不存在时返回空串（本次不预填；配置保留——
+/// U 盘 keyfile 临时拔出后恢复即复用）。
 #[tauri::command]
 fn get_settings() -> SettingsFile {
-    settings::load_or_default()
+    let mut s = settings::load_or_default();
+    if !s.keyfile_path.is_empty() && !std::path::Path::new(&s.keyfile_path).exists() {
+        s.keyfile_path = String::new();
+    }
+    s
 }
 
 /// 保存设置：写 settings.json（超时配置重启后生效）+ 即时对账自启注册表值。
+/// keyfile_path 由 unlock 流程维护——设置面板不持有该字段，落盘前强制保留现值。
 #[tauri::command]
 fn save_settings(s: SettingsFile) -> Result<SettingsFile, String> {
+    let mut s = s;
+    s.keyfile_path = settings::load_from(&settings::settings_path()).keyfile_path;
     settings::save_to(&settings::settings_path(), &s)?;
     let exe = std::env::current_exe()
         .map_err(|e| format!("resolve current exe: {e}"))?
@@ -226,6 +273,8 @@ fn main() {
             unlock,
             lock_now,
             touch,
+            set_editing,
+            keyfile_pick,
             get_settings,
             save_settings,
             entry_list,

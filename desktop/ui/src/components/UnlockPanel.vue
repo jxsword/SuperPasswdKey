@@ -1,6 +1,9 @@
 <script setup lang="ts">
 // 解锁面板：主密码 + keyfile（复用 v0.3.0 静态页语义；密码经 invoke 直达 Rust，不落前端存储）。
-import { ref } from "vue";
+// keyfile 路径自动记忆：预填上次成功解锁的路径（文件不存在时后端返回空），
+// 支持系统文件浏览选择（2026-10-31 验收反馈）。
+import { onMounted, ref } from "vue";
+import * as api from "../api";
 import { useSession } from "../composables/useSession";
 
 const props = defineProps<{ error: string }>();
@@ -11,6 +14,24 @@ const password = ref("");
 const keyfile = ref("");
 const busy = ref(false);
 const localError = ref("");
+
+onMounted(async () => {
+  try {
+    const s = await api.getSettings();
+    keyfile.value = s.keyfile_path;
+  } catch {
+    // 预填失败不阻断解锁
+  }
+});
+
+async function browseKeyfile() {
+  try {
+    const p = await api.keyfilePick();
+    if (p) keyfile.value = p;
+  } catch (e) {
+    localError.value = String(e);
+  }
+}
 
 async function submit() {
   if (!password.value) {
@@ -47,10 +68,13 @@ function onKeydown(ev: KeyboardEvent) {
       autocomplete="off"
       @keydown="onKeydown"
     />
-    <label for="unlock-keyfile">keyfile 路径（可选）</label>
-    <input id="unlock-keyfile" type="text" v-model="keyfile" autocomplete="off" />
+    <label for="unlock-keyfile">keyfile 路径（可选；自动记忆上次使用的路径）</label>
+    <div class="kf-row">
+      <input id="unlock-keyfile" type="text" v-model="keyfile" autocomplete="off" />
+      <button class="browse" type="button" @click="browseKeyfile">浏览…</button>
+    </div>
     <div class="error" v-if="localError">{{ localError }}</div>
-    <button :disabled="busy" @click="submit">
+    <button class="submit" :disabled="busy" @click="submit">
       {{ busy ? "解锁中（KDF 派生，约 1–3 秒）…" : "解锁" }}
     </button>
     <p class="hint">
@@ -92,6 +116,29 @@ input {
 
 input:focus {
   outline: 2px solid rgba(0, 150, 136, 0.2);
+  border-color: var(--teal);
+}
+
+.kf-row {
+  display: flex;
+  gap: 6px;
+}
+
+.kf-row input {
+  flex: 1;
+}
+
+.browse {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 0 12px;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.browse:hover {
   border-color: var(--teal);
 }
 
