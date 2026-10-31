@@ -12,7 +12,7 @@
 | #2 | **S1a GUI 设计+MVP** | design_docs/16（Vue3+Vite/DR-014/信息架构/安全边界）+ 脚手架 + 解锁集成/列表/搜索/详情 | design_docs/16 + GUI MVP | ✅ 全部完成（交付说明：[S1a-DELIVERY-2026-10-30.md](S1a-DELIVERY-2026-10-30.md)） |
 | #3 | **S1b GUI 写路径** | **拆两批**：S1b-1=详情交互增强（显示/放大显示）+ 条目创建/编辑/删除（custom_fields 保真）；S1b-2=标签全栈（KDBX4 原生 Tags，CLI+GUI）→ 附件 add/list/get → 自定义字段编辑 UI | GUI 写路径完整 | ✅ 全部完成（交付说明：[S1b-DELIVERY-2026-10-31.md](S1b-DELIVERY-2026-10-31.md)） |
 | #3.5 | **验收测试与反馈修复（插入轮）** | 验收清单 v1.2 入库（GUI 28 项 + CLI 22 项 + 注入 15 项）；反馈修复：GUI 编辑防锁/keyfile 路径记忆+浏览/保存即时刷新；CLI 参数校验前置（item create/read/clip/run URI）；同名撞车注记；CI 分区触发（DR-015） | 验收清单 v1.2 + 修复全合并 | ✅ 完成（PR #57–#69；状态见 [HANDOFF-2026-10-31.md](HANDOFF-2026-10-31.md) §1 验收状态行；**待用户回归**：GUI B 组剩余项 + A10.4 LLM 实战） |
-| #4 | **S3 Mimosa 基线审计** | 全仓审计（CLI+扩展+桌面+**完整 GUI 含写路径/标签/附件** + 验收轮修复）+ 修复 | 审计报告 + 修复 | ☐ |
+| #4 | **S3 Mimosa 基线审计** | 全仓审计（CLI+扩展+桌面+**完整 GUI 含写路径/标签/附件** + 验收轮修复）+ 修复 | 审计报告 + 修复 | ✅ 完成（Mimosa 回执 0 发现/inconclusive；人工复审 9 修复+12 组豁免，报告：[s3_mimosa_基线审计_2026-10-31.md](../reviews/s3_mimosa_基线审计_2026-10-31.md)，交付说明：[S3-DELIVERY-2026-10-31.md](S3-DELIVERY-2026-10-31.md)） |
 | #5 | **S1c 收尾+发布** | 导入导出向导/注入启动器/.env 工作流文档 + 发布前 Mimosa 复审 + **v0.4.0** 发版 | v0.4.0 | ☐ |
 | #6 | **S4 Android 批次 2** | 真机前置 + 任务书先行 | Android Keystore/生物/每 boot 主密码 | ☐ |
 | — | Backlog（不排期） | P2 协议加密、密钥复用开库、1pux、指纹去重三级、ssh-agent/shell 包装、服务器轨 | — | — |
@@ -175,6 +175,6 @@
 - [x] S1a GUI 设计+MVP（会话 #2）
 - [x] S1b GUI 写路径（会话 #3；S1b-1 + S1b-2（标签/附件/自定义字段 UI）全部完成）
 - [x] 验收测试与反馈修复（插入轮，2026-10-31；清单 v1.2 + 修复 PR #57–#69；GUI B 组剩余项与 A10.4 LLM 实战待用户回归）
-- [ ] S3 Mimosa 基线审计（会话 #4，审计范围含完整 GUI 写路径）
+- [x] S3 Mimosa 基线审计（会话 #4，审计范围含完整 GUI 写路径；Mimosa 扫描 + 人工复审，9 修复 + 12 组豁免，报告入库 docs/reviews/）
 - [ ] S1c 收尾+v0.4.0 发布（会话 #5；发布前需 develop→main PR 同步）
 - [ ] S4 Android 批次 2（会话 #6，真机前置）

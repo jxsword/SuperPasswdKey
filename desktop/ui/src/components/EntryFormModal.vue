@@ -41,7 +41,8 @@ const tagsText = ref((props.initial?.tags ?? []).join(", "));
 const fields = ref<CustomField[]>(
   (props.initial?.custom_fields ?? []).map((f) => ({ ...f })),
 );
-const showPassword = ref(props.mode === "edit");
+// 默认掩码（S3 审计口径 2026-10-31：编辑态也默认 ●●●●，防肩窥；"显示"按钮可切）
+const showPassword = ref(false);
 const busy = ref(false);
 const error = ref("");
 
