@@ -50,6 +50,16 @@
 | **主密码** | 解锁库的密码，**只在你输入时存在于内存**，任何文件里都不存 |
 | **keyfile** | 第二因子文件（`sp init` 自动生成 `库名.keyfile`）。**双因子缺一不可；keyfile 丢失 = 库永久不可解**，必须离线备份 |
 
+> ⚠️ **同名程序撞车提示（sp.exe）**：本 CLI 的可执行文件名为 `sp.exe`，其他第三方程序也可能使用同一名称（已知案例：**win-pyvideotrans v4.17 项目的 GUI 应用**）。PATH 按目录顺序"先到先得"，敲 `sp` 时实际命中哪个取决于 PATH 顺序。调用前建议核对：
+>
+> ```powershell
+> where.exe sp          # cmd / PowerShell 均可，列出 PATH 中全部同名命中（按优先级排序）
+> Get-Command sp        # PowerShell：显示当前实际命中的完整路径
+> sp --version          # 本 CLI 会输出版本号；子命令面为 item/clip/run/import/export 等
+> ```
+>
+> 若命中了错误的程序：把本 CLI 所在目录在 PATH 中**移到该第三方条目之前**（推荐用 `scripts/add-path.ps1` 调整，避免手改注册表），或始终以完整路径调用（如 `C:\path\to\sp.exe item list`）。桌面 GUI（sp-desktop.exe）无此撞名问题。
+
 ### 三步上手
 
 ```bash

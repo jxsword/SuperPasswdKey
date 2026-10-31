@@ -166,6 +166,8 @@ GUI 操作 ↔ Tauri command ↔ sp-kffi/Vault 调用（机密纪律：password 
 
 **共享面**：同一 vault.kdbx（KDBX4，KeePassXC 互操作）；语义单源 = sp-core/sp-kdbx（CLI 校验规则、TOTP 生成、URL 匹配均同源，无第二实现）。
 
+> ⚠️ **同名程序撞车提示（sp.exe）**：第三方程序可能与本 CLI 同名（已知案例：win-pyvideotrans v4.17 项目的 GUI 应用亦为 sp.exe）。GUI 用户做库准备（`sp init`/`sp item create`，见 §8.4 前置）时同样受 PATH 顺序影响——核对方法与处置见 CLI 手册 §1"同名程序撞车提示"；sp-desktop.exe 命名独立，无此问题。
+
 **并发注意**：GUI 解锁期间库驻留内存（会话期），MVP 无外部修改检测——CLI/KeePassXC 在 GUI 会话内修改库文件后，GUI 的写操作（S1b 起）可能以内存态覆盖外部改动；MVP 只读操作互不影响。验收时避免 GUI 会话与外部写并发。
 
 ```mermaid
