@@ -221,12 +221,12 @@ X=sp://no-such/Password
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
 | A10.3a | `& $SP run --db $LLMDB --keyfile $LLMKEY --env-file C:\vault\llm.env -- cmd /c echo %LLM_API_KEY%` | 解锁一次后子进程执行；stdout 输出 **`<redacted>`**（子进程 echo 出的 API key 被打码——**即使用户脚本误打印机密也安全**；`%LLM_API_KEY%` 是 **cmd 变量展开**，非 PowerShell 变量） | SP-F-301/3xx | |
-| A10.3b | `... --env-file C:\vault\llm.env -- cmd /c echo %LLM_BASE_URL%` | 输出 `https://api.deepseek.com`（非引用值原样透传，不打码） | SP-F-3xx | |
-| A10.3c | `... --no-masking --env-file C:\vault\llm.env -- cmd /c echo %LLM_API_KEY%` | 输出**真实 API key**（与 A10.1c 粘贴值一致；`--no-masking` 仅调试核对用） | SP-F-3xx（值正确性） | |
+| A10.3b | `... --env-file C:\vault\llm.env -- cmd /c echo %LLM_BASE_URL%` | 输出 **`<redacted>`**（v1.2 修订：打码面 = **env 文件全部值**，含明文非引用值——保守设计，防用户把机密直接写成明文时漏保护；"非引用值正确注入"改由 A10.3c 的 `--no-masking` 验证） | SP-F-3xx | |
+| A10.3c | `... --no-masking --env-file C:\vault\llm.env -- cmd /c echo %LLM_API_KEY%` 与 `... --no-masking -- cmd /c echo %LLM_BASE_URL%` | 分别输出**真实 API key**（与 A10.1c 粘贴值一致）与 `https://api.deepseek.com`（`--no-masking` 仅调试核对用） | SP-F-3xx（值正确性） | |
 | A10.3d | 观察 A10.3a 的 stderr | 出现 `sp: refusing to set protected variable 'PATH' (SP-F-301)`——PATH 被拒绝注入，其余变量照常 | SP-F-301 | |
 | A10.3e | 退出码透传：`... -- cmd /c exit 7`，然后 `$LASTEXITCODE` | 子进程退出码原样透传：`7` | 手册 §8 | |
-| A10.3f | `& $SP run --db $LLMDB --keyfile $LLMKEY --env-file C:\vault\llm-bad-uri.env -- cmd /c echo x` | **不提示主密码**，直接报参数错误（`uri 'malformed' must be <title>/<field>`），退出码 **4**（URI 解析前置） | 手册 §8/§13 | |
-| A10.3g | `& $SP run --db $LLMDB --keyfile $LLMKEY --env-file C:\vault\llm-missing.env -- cmd /c echo x` | 解锁后报未找到（引用的条目不存在），退出码 **3** | 手册 §8/§13 | |
+| A10.3f | `& $SP run --db $LLMDB --keyfile $LLMKEY --env-file C:\vault\llm-bad-uri.env -- cmd /c echo x` | **不提示主密码**，直接报参数错误（`uri 'malformed' must be <title>/<field>`），退出码 **4**（sp:// 引用格式校验前置，v1.2） | 手册 §8/§13 | |
+| A10.3g | `& $SP run --db $LLMDB --keyfile $LLMKEY --env-file C:\vault\llm-missing.env -- cmd /c echo x` | 提示主密码解锁后报未找到（引用的条目不存在），退出码 **3**——条目存在性必须查库，无法前置（与 A10.3f 的格式前置相区分） | 手册 §8/§13 | |
 
 #### A10.4 实战使用：注入 LLM API key 调用大模型 API
 
