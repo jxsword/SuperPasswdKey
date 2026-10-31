@@ -188,10 +188,12 @@ jobs:
           # 浏览器扩展（商店/解压两用 zip：dist 内容为根）
           Compress-Archive -Path extension/dist/* -DestinationPath "$out/superpasswdkey-extension-${{ github.ref_name }}.zip" -Force
           Push-Location $out
+          # 先打 umbrella zip，再生成清单——确保主分发包本身入 SHA256SUMS
+          # （v0.4.0 实测：旧顺序 zip 在 SUMS 之后生成，主包不在签名覆盖内）
+          Compress-Archive -Path sp.exe, sp-nmhost.exe, README.md, install.ps1, native-host, docs, *.exe, *.zip -DestinationPath "sp-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip" -Force
           # 相对路径入清单（保留 native-host/ 子目录；避免平铺产生同名歧义）
           $h = Get-ChildItem -File -Recurse | Get-FileHash -Algorithm SHA256
           $h | ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), $_.Path.Substring((Get-Location).Path.Length + 1) } | Out-File -Encoding ascii SHA256SUMS.txt
-          Compress-Archive -Path sp.exe, sp-nmhost.exe, README.md, install.ps1, native-host, docs, SHA256SUMS.txt, *.exe, *.zip -DestinationPath "sp-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip" -Force
           Pop-Location
           Get-ChildItem $out
 
