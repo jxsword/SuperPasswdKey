@@ -43,9 +43,14 @@ deny = []
 [advisories]
 version = 2
 yanked = "warn"
-# 供应链纪律（红线 #10）：每条豁免记录理由，随上游更新重审
+# 供应链纪律（红线 #10）：每条豁免记录理由，随上游更新重审。
+# S1c 起 age/zip 随导出核心下沉进入桌面依赖图——豁免面与根 deny.toml 同源对齐。
 ignore = [
-    { id = "RUSTSEC-2026-0374", reason = "basic-toml unmaintained — uniffi_bindgen(askama) 构建期代码宏传递依赖，非运行时解析不可信输入；与根配置对同一公告的豁免同源，随 uniffi 升级重审" },
+    { id = "RUSTSEC-2026-0374", reason = "basic-toml unmaintained — uniffi_bindgen(askama)/age 构建期代码宏传递依赖，非运行时解析不可信输入；与根配置同源，随 uniffi/age 升级重审" },
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 时序变异 — age X25519 传递依赖；本地单用户工具威胁模型下接受，随 age 升级重审" },
+    { id = "RUSTSEC-2026-0367", reason = "zip SUID/SGID 提取提权 — sp 仅写入归档（从不解包不可信 zip），提取 API 不在攻击面内；随 zip 升级重审" },
+    { id = "RUSTSEC-2026-0368", reason = "zip 符号链接逃逸 — 同上：只写不读，提取路径不可达；随 zip 升级重审" },
+    { id = "RUSTSEC-2026-0369", reason = "zip 符号链接权限 — 同上：只写不读；zip 已升 9.2.0（RUSTSEC-2026-0369 修复版本），保留条目防御纵深" },
 ]
 
 [sources]
