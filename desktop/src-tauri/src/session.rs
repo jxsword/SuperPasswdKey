@@ -607,7 +607,7 @@ mod tests {
         }];
         s.entry_create(d).expect("entry_create");
 
-        // 列表含新条目；完整读回含 custom_fields（创建即保真）
+        // 列表含新条目；完整读回含 custom_fields（创建即保真；读回顺序不保证——按名断言）
         let list = s.entry_list().expect("list");
         assert!(list.iter().any(|e| e.title == "Created"));
         let got = s.entry_get("Created").expect("entry_get");
@@ -659,12 +659,13 @@ mod tests {
         }
         let got = s.entry_get("Editable-Renamed").expect("renamed");
         assert_eq!(got.password.as_deref(), Some("pass-2"));
+        // keepass-ng additional_attributes 为 HashMap 存储，读回顺序跨平台不确定——按集合断言
         assert_eq!(
             got.custom_fields
                 .iter()
                 .map(|c| c.name.as_str())
-                .collect::<Vec<_>>(),
-            vec!["api_key", "region"],
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from(["api_key", "region"]),
             "custom fields must survive edit"
         );
     }

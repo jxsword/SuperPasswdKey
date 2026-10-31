@@ -456,11 +456,19 @@ fn find_entry_full_returns_custom_fields_rust_only_surface() {
     vault.add_entry(d).expect("add_entry");
 
     let full = vault.find_entry_full("Full Entry".into()).expect("full");
+    // 注意：keepass-ng additional_attributes 为 HashMap 存储，读回顺序跨平台不确定——
+    // 断言必须按名查找，不得依赖索引顺序（2026-10-31 linux CI 实测教训）
     assert_eq!(full.custom_fields.len(), 2);
-    assert_eq!(full.custom_fields[0].name, "api_key");
-    assert_eq!(full.custom_fields[0].value, "k-123");
-    assert!(full.custom_fields[0].protected);
-    assert_eq!(full.custom_fields[1].name, "region");
+    let api_key = full
+        .custom_fields
+        .iter()
+        .find(|c| c.name == "api_key")
+        .expect("api_key present");
+    assert_eq!(api_key.value, "k-123");
+    // protected 标记 v0.1 不持久化（DR-005：keepass_ng 无受保护自定义字段 API，
+    // 统一存为未保护，读回恒 false——sp-kdbx 模块文档已知限制）
+    assert!(!api_key.protected);
+    assert!(full.custom_fields.iter().any(|c| c.name == "region"));
 
     // 对照：旧 FfiEntry 面确实不含 custom_fields（回归口径不破）
     let plain = vault.find_entry("Full Entry".into()).expect("plain");
@@ -501,8 +509,8 @@ fn find_entry_full_returns_custom_fields_rust_only_surface() {
             .custom_fields
             .iter()
             .map(|c| c.name.as_str())
-            .collect::<Vec<_>>(),
-        vec!["api_key", "region"],
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from(["api_key", "region"]),
         "custom fields must survive edit"
     );
 }
