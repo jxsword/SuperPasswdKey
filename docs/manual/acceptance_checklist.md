@@ -234,7 +234,7 @@ X=sp://no-such/Password
 
 | # | 命令/操作 | 预期结果 | 覆盖 | 实际结果 |
 |---|---|---|---|---|
-| A10.4a | `& $SP run --db $LLMDB --keyfile $LLMKEY --env-file C:\vault\llm.env -- powershell -NoProfile -Command "(Invoke-RestMethod -Uri ($env:LLM_BASE_URL + '/models') -Headers @{Authorization = 'Bearer ' + $env:LLM_API_KEY}).data.id"` | 输出服务商返回的**模型 id 列表**（DeepSeek：`deepseek-chat` / `deepseek-reasoner` 等）——API key 从库经环境变量注入、真实鉴权成功 | SP-F-3xx（端到端） | |
+| A10.4a | ```& $SP run --db $LLMDB --keyfile $LLMKEY --env-file C:\vault\llm.env -- powershell -NoProfile -Command "(Invoke-RestMethod -Uri (`$env:LLM_BASE_URL + '/models') -Headers @{Authorization = 'Bearer ' + `$env:LLM_API_KEY}).data.id"``` | 输出服务商返回的**模型 id 列表**（DeepSeek：`deepseek-chat` / `deepseek-reasoner` 等）——API key 从库经环境变量注入、真实鉴权成功 | SP-F-3xx（端到端） | |
 | A10.4b | 把 A10.4a 的命令里的 `LLM_API_KEY` 故意输错验证打码兜底：改用 `-- cmd /c echo Bearer %LLM_API_KEY%` 搭配一个会回显的假调用（可选） | 若某工具把 key 打到 stdout/stderr，输出仍为 `<redacted>`（打码层兜底） | SP-F-3xx | |
 | A10.4c | （可选）chat 冒烟：同 A10.4a 结构改 POST `/chat/completions`（body 传 `{"model":"deepseek-chat","messages":[{"role":"user","content":"ping"}]}`，`-ContentType 'application/json'`） | 返回 JSON 含 `choices[0].message.content`——注入的 key 可直接支撑真实应用 | SP-F-3xx | |
 
