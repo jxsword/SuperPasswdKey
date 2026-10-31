@@ -119,3 +119,11 @@
 - 理由: GitHub 官方行为 skipped check 视为通过——"七 job 全绿"门禁实质不变；分区收益最大（仅 extension 改动跳 5 个 Rust job，纯文档零构建）；desktop/android 与根 crates 的 path 依赖关系已在条件中显式建模。
 - 影响: .github/workflows/ci.yml（changes job + 七 job needs/if）；门禁语义说明入 CI 注释；后续 docs PR 零构建。
 - 记录时间 / 会话: 2026-10-31 / SuperPasswdKey S1b 前置会话
+
+## DR-016 2026-10-31 同名条目策略：允许同名 + `--index` 组内序号寻址（CLI 补齐 item edit 同批） [状态: 生效]
+- 背景: CLI item 族原无 edit 入口（SP-F-102 描述含 edit、追溯矩阵 SP-F-103 标"CLI 入口缺"）；同名条目仅有"首个命中遮蔽"行为（手册注记、无测试锚定）；HANDOFF-2026-10-31 §5 已把"同名条目多实例寻址（ID/序号）"列为 CLI backlog。用户于 S1c 前插入需求：核实并补齐 edit、明确同名策略。
+- 选项与权衡: A(允许同名 + `--index` 组内序号寻址：落地 backlog 既定方向，对齐 1Password/KeePassXC 生态，GUI SP-F-909"同名允许"/扩展保存 `host (username) N` 消歧/同站多账号导入数据三面零破坏，选定); B(禁止同名：创建/导入/改名三处查重退 4——接口最简但与上述三面冲突属行为倒退，需连带改 GUI/扩展/导入并重跑验收，弃用)。
+- 结论: sp-kdbx 新增 find/edit/delete/totp 的 `_at(index)` 变体（None=首个=现状锚定，原函数委托零破坏，GUI/NM/Android 不动）；CLI `item get/edit/delete/read/clip` 接 `--index`、`item list` 加 `--enumerate`；新增 `sp item edit`（patch 语义、校验前置退 4、`--rename/--field/--remove-field/--tag` 等）；创建/导入不查重维持。
+- 理由: 生态惯例 + 三面现状零破坏 + backlog 既定方向；序号漂移（删除同名条目后前移）以文档口径约束（手册 §4.5"删前重查"惯例）；UUID 寻址留后续。
+- 影响: crates/sp-kdbx、sp-cli（main/commands，纯函数 validate/apply_edit_patch 单测）、sp-core（RESERVED_FIELD_NAMES 上移公开）；手册 §4.5 新节 + §6/§7/§12/§14/附录A；SRS V1.10；追溯矩阵 SP-F-102/103；验收清单 A2b 组；进程级 e2e 因 Mimosa 对测试内子进程构造的模式误报（3 种合规形态均拦）按 attachment_e2e 先例交维护者手动落盘（内容随 PR 交付）。
+- 记录时间 / 会话: 2026-10-31 / SuperPasswdKey S1c 前插入批（item edit + 同名寻址）

@@ -174,9 +174,9 @@ sp init --db D:\keys\work.kdbx --keyfile E:\separate-medium\work.keyfile --kdf-t
 
 ## 4. `sp item` —— 条目操作族
 
-**用法**：`sp item <create | get | list | delete>`
+**用法**：`sp item <create | get | list | edit | delete>`
 
-**用途**：条目（一个登录/一条密钥记录）的创建、查看、列举、删除。子命令见下。
+**用途**：条目（一个登录/一条密钥记录）的创建、查看、列举、**修改**、删除。子命令见下。
 
 ---
 
@@ -207,8 +207,8 @@ sp item create github -u alice --url https://github.com
 ```
 
 - **用途**：建一条可用于浏览器填充的 github 登录条目。
-- **注意事项**：① 命令先提示 `Enter password to unlock <库>: `（主密码，写操作需解锁）；② 随后提示 `Entry password (empty to skip): `——**条目密码只能交互输入**（没有 `-p` 参数），留空则该条目不存密码；③ **同名标题不会报错**：会生成重复条目，且旧条目被同名遮蔽（`get/read/clip` 只命中首个）——建前建议 `sp item list` 查重；④ **参数校验在解锁之前**：标题空/`--totp` 非 otpauth:// 开头/自定义字段保留名等坏参数**不提示主密码**直接报参数错误退出 4（2026-10-31 起）。
-- **关联命令**：`sp item list`（查重）→ `sp item create` → `sp item get github -a Password` / `sp clip github/Password`（取用）→ `sp item delete github`（删除）。
+- **注意事项**：① 命令先提示 `Enter password to unlock <库>: `（主密码，写操作需解锁）；② 随后提示 `Entry password (empty to skip): `——**条目密码只能交互输入**（没有 `-p` 参数），留空则该条目不存密码；③ **同名标题不会报错**：会生成重复条目，查询/删除/修改用 `--index` 指定实例（§4.5 编辑、§4.2/§4.4；寻址语义详见 §4.5 开头）；④ **参数校验在解锁之前**：标题空/`--totp` 非 otpauth:// 开头/自定义字段保留名等坏参数**不提示主密码**直接报参数错误退出 4（2026-10-31 起）。
+- **关联命令**：`sp item list`（查重）→ `sp item create` → `sp item get github -a Password` / `sp clip github/Password`（取用）→ `sp item edit`（改字段）→ `sp item delete github`（删除）。
 
 **示例 2：全字段条目（自定义字段 + TOTP）**
 
@@ -248,6 +248,7 @@ sp item create server-key --notes "prod jump host" --attach C:\keys\id_ed25519
 | `<TITLE>` | — | ✅ | — | 条目标题 |
 | `--field <FIELD>` | `-a` | 否 | 无 | 只显示单字段；**解析顺序：先查自定义字段，再查保留名**（`Title/UserName/Password/URL/Notes`，大小写敏感） |
 | `--totp` | `-t` | 否 | — | 输出当前 TOTP 六位码；**优先级高于 `-a`** |
+| `--index <N>` | — | 否 | 1 | **同名条目实例序号**（1-based，按库内文档序；DR-016）——同名时区分取哪一条，越界报未找到（退出 3，附同名总数） |
 | `--db / --keyfile / -h` | — | — | — | 见 §2 |
 
 **示例 1：取密码**
@@ -284,6 +285,7 @@ sp item get work-vpn -t
 | 参数 | 简写 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
 | `--tag <TAG>` | — | 否 | 无 | 只列携带该标签的条目（精确匹配、大小写不敏感；SP-F-108） |
+| `--enumerate` | — | 否 | — | 每行加**同名组内序号前缀** `#n<TAB>`（1-based 文档序，与 `--index` 同口径）；默认纯标题排序输出（脚本兼容） |
 | `--db / --keyfile / -h` | — | — | — | 见 §2 |
 
 **示例**：
@@ -291,11 +293,12 @@ sp item get work-vpn -t
 ```bash
 sp item list
 sp item list --tag work
+sp item list --enumerate
 ```
 
 - **用途**：建条目前查重；确认导入结果；确认插件/桌面用库的条目清单；按标签筛选同类条目。
-- **注意事项**：只列**标题**，不显示用户名等字段；库需要解锁（会提示主密码）。
-- **关联命令**：`sp item get <标题>`（看某条详情）→ `sp item delete <标题>`（清理误建条目）。
+- **注意事项**：只列**标题**，不显示用户名等字段；库需要解锁（会提示主密码）；`--enumerate` 输出**文档序**（非排序），序号即 `item get/edit/delete --index` 用的实例号。
+- **关联命令**：`sp item get <标题>`（看某条详情）→ `sp item edit`（改字段）→ `sp item delete <标题>`（清理误建条目）。
 
 ---
 
@@ -309,7 +312,8 @@ sp item list --tag work
 
 | 参数 | 简写 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
-| `<TITLE>` | — | ✅ | — | 要删除的条目标题（同名只删首个命中） |
+| `<TITLE>` | — | ✅ | — | 要删除的条目标题 |
+| `--index <N>` | — | 否 | 1 | **同名条目实例序号**（1-based 文档序）——同名时指定删哪一条；删除后其余同名的序号**前移** |
 | `--db / --keyfile / -h` | — | — | — | 见 §2 |
 
 **示例**：
@@ -321,8 +325,69 @@ sp item list
 ```
 
 - **用途**：删前 `list` 确认标题、删后再 `list` 复核。
-- **注意事项**：① CLI **没有恢复命令**——误删恢复请用 KeePassXC 打开同一库，从回收站恢复；② 标题重复时只删第一条，重复条目请先用 KeePassXC 整理。
+- **注意事项**：① CLI **没有恢复命令**——误删恢复请用 KeePassXC 打开同一库，从回收站恢复；② 同名条目用 `sp item list --enumerate` 看序号后以 `--index` 指定（默认只删第一个命中）。
 - **关联命令**：`sp item list`（前后核对）。
+
+---
+
+### 4.5 `sp item edit` —— 修改条目（2026-10-31 新增）
+
+**用法**：`sp item edit [OPTIONS] <TITLE>`
+
+**用途**：就地修改既有条目的字段（**patch 语义**：只给要改的，未给的字段一律保持不变）。旧版本自动压入条目 history（SP-F-103，KeePassXC 可见可回溯）。
+
+**同名寻址口径（DR-016，2026-10-31 起）**：同名条目**允许存在**（创建/导入不查重）；`item get/edit/delete` 与 `read/clip` 均支持 `--index <N>`——N 为该标题下实例的**组内序号**（1-based，按库内文档序），`sp item list --enumerate` 可查看每个标题的序号。**序号在删除同名条目后会前移**，脚本引用请以"删前重查"为惯例。
+
+**参数表**：
+
+| 参数 | 简写 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `<TITLE>` | — | ✅ | — | 要修改的条目标题（定位键；改名用 `--rename`） |
+| `--index <N>` | — | 否 | 1 | 同名条目实例序号（1-based 文档序；越界退出 3 并附同名总数） |
+| `--username <VAL>` | `-u` | 否 | 不变 | 新用户名；**传空串 `""` 清除**该字段 |
+| `--url <VAL>` | — | 否 | 不变 | 新 URL；空串清除 |
+| `--notes <VAL>` | — | 否 | 不变 | 新备注；空串清除 |
+| `--password` | `-p` | 否 | 不变 | **交互式**提示输入新密码（`New entry password (empty to keep current): `）；输入空行=保持现密码 |
+| `--totp <VAL>` | — | 否 | 不变 | 新 TOTP 链接（须 `otpauth://` 开头）；空串清除；非 otpauth 值退出 4 |
+| `--tag <TAG>` | — | 否 | 不变 | **整体替换**标签集（可重复；自动 trim、空标签剔除；全空串=清空全部标签） |
+| `--field <K=V>` | — | 否 | 不变 | 自定义字段 upsert（可重复）：同名键覆盖值，新键追加；保留名/空键名退出 4 |
+| `--remove-field <K>` | — | 否 | 不变 | 按名删除自定义字段（可重复；名字不存在无副作用） |
+| `--rename <NEW>` | — | 否 | 不变 | 改标题（可与其它字段同批）；空串退出 4；改名后允许与其它条目同名（DR-016） |
+| `--db / --keyfile / -h` | — | — | — | 见 §2 |
+
+**示例 1：改密码与 URL**
+
+```bash
+sp item edit github --url https://github.com/login
+sp item edit github -p
+# New entry password (empty to keep current): ********
+```
+
+- **用途**：换站点入口、轮换密码。
+- **注意事项**：① 全部校验前置——`--index 0`/`--rename ""`/`--totp` 非 otpauth/`--field` 保留名/**一个修改参数都不给**（`nothing to edit`）都在**提示主密码之前**报参数错误退出 4；② 摘要输出只列**改了哪些字段类别**（如 `Updated entry 'github': password, url`），**不回显任何值**。
+- **关联命令**：`sp item get github`（复核改动）。
+
+**示例 2：自定义字段增删与标签替换**
+
+```bash
+sp item edit work-vpn --field tier=platinum --remove-field env --tag work --tag infra
+```
+
+- **用途**：维护条目的结构化元数据。
+- **注意事项**：`--tag` 是**整体替换**（想追加请先把现有标签一并写全，可用 `sp item get work-vpn` 先看现状）；`--field env=` 会把 env 设为空值而不是删除，删除请用 `--remove-field env`。
+- **关联命令**：`sp item get work-vpn`（看现值）。
+
+**示例 3：同名条目的定向修改**
+
+```bash
+sp item list --enumerate
+# #1	svc
+# #2	svc
+sp item edit svc --index 2 --rename svc-work
+```
+
+- **用途**：把同名条目中的一条改名以便后续区分（改名后两条即可用不同标题直接引用）。
+- **注意事项**：`--index` 缺省=1（文档序第一条）；改名在合并后生效，**定位仍按原标题**。
 
 ---
 
@@ -433,6 +498,7 @@ sp attachment get server-key id_ed25519 | ssh-add -
 | `<URI>` | — | ✅ | — | 形如 `github/Password`；字段解析顺序：**先保留名**（`Title/UserName/Password/URL/Notes`，大小写敏感），再自定义字段；`totp`/`TOTP` 特殊（直接出当前动态码） |
 | `--no-newline` | `-n` | 否 | — | 输出不带结尾换行（便于拼进命令替换） |
 | `--out-file <FILE>` | — | 否 | — | 写入文件（**Windows ACL 限当前用户**；不再输出到终端） |
+| `--index <N>` | — | 否 | 1 | 同名条目实例序号（1-based 文档序；DR-016） |
 | `--db / --keyfile / -h` | — | — | — | 见 §2 |
 
 **示例 1：管道取值**
@@ -470,6 +536,7 @@ sp read api-service/Password --out-file C:\tmp\token.txt
 |---|---|---|---|---|
 | `<URI>` | — | ✅ | — | 同 `sp read` 的 URI 语法 |
 | `--timeout <秒>` | — | 否 | 配置文件 `clip_timeout_secs`（默认 30） | 清除倒计时秒数 |
+| `--index <N>` | — | 否 | 1 | 同名条目实例序号（1-based 文档序；DR-016） |
 | `--db / --keyfile / -h` | — | — | — | 见 §2 |
 
 **示例**：
@@ -732,6 +799,7 @@ sp export --plaintext > C:\backup\vault-plain.json
 | `Enter password to unlock <库>: ` | 除 `init` 外全部命令 | 主密码解锁；**管道/非 TTY 时从 stdin 读一行**；提示写 **stderr**，stdout 保持纯净 |
 | `Choose a master password:` / `Confirm master password:` | `sp init` | 新库主密码两次输入 |
 | `Entry password (empty to skip): ` | `sp item create` | 条目密码，留空则不存 |
+| `New entry password (empty to keep current): ` | `sp item edit -p` | 新条目密码，留空=保持现密码 |
 | `Archive passphrase:` / `Confirm passphrase: ` | `sp export`（默认模式） | 归档加密口令（与主密码独立） |
 | `Re-enter master password to confirm plaintext export: ` | `sp export --plaintext` | 明文导出二次确认 |
 
@@ -767,11 +835,11 @@ printf '%s\n' "$MASTER_PW" | sp item list
 **功能边界（当前版本如实声明）**：
 
 1. **附件命令族完备度**：`sp attachment add/list/get` 已补齐"已有条目增补与读回"；仍**没有附件删除/重命名命令**（需要时用 KeePassXC 打开同一库操作）；同名附件直接覆盖。
-2. **导入条目只含"值"**：标题/用户名/URL 不随导入写入（§10.1），需人工补全；CLI 无 `item edit`，可用 KeePassXC 打开同一库编辑。
+2. **导入条目只含"值"**：标题/用户名/URL 不随导入写入（§10.1），需人工补全后可用 `sp item edit` 补齐（2026-10-31 起有编辑入口）。
 3. **无归档一键回导**：`sp export` 的归档恢复需手动解包处理（§11 示例 2）。
 4. **没有 `--force/--quiet/--verbose`**：SRS/早期设计提及但未实现；`item create -p` 参数不存在（帮助文案以 `sp --help` 为准）。
 5. **字段保护级别**：密码与 TOTP 在库内还有一层字段级保护（ChaCha20）；**用户名、URL、备注、自定义字段只有整库加密保护**（解密后 XML 内明文）——高敏材料请放密码字段或附件。
-6. **同名条目**：创建/导入不查重，同名会遮蔽（`get/read/clip` 只命中首个）。
+6. **同名条目**（DR-016，2026-10-31 起）：创建/导入**不查重**（允许同名）；查询/删除/修改用 `--index` 指定实例（`item get/edit/delete/read/clip`；`item list --enumerate` 看序号），缺省=首个命中；**附件命令族与 `sp run/inject` 的 sp:// 引用暂不支持 `--index`**（维持首个命中）；删除同名条目后其余实例序号前移。
 7. **每次保存都会重加密整库**（随机盐/随机种子轮换），大附件会增加保存耗时与内存占用（附件与库均为全量读入内存）。
 
 **安全提示**：
@@ -785,24 +853,25 @@ printf '%s\n' "$MASTER_PW" | sp item list
 
 ## 附录 A：全命令全参数覆盖核对表
 
-> 核对基准：`sp --help` 与全部子命令 `--help` 输出（2026-10-29，sp 0.1.0），逐项比对打勾。
+> 核对基准：`sp --help` 与全部子命令 `--help` 输出（2026-10-31，随 `sp item edit` 新增更新），逐项比对打勾。
 
 | 命令 | 子命令 / 参数（全部） | 覆盖 |
 |---|---|---|
 | `sp` | `init` `item` `attachment` `read` `run` `inject` `clip` `import` `export` `help` | ☑ |
 | 全局 | `--db` `--keyfile` `-h/--help` `-V/--version` | ☑ |
 | `sp init` | `--db` `--kdf-target-ms`（默认 700） `--keyfile` `-h` | ☑ |
-| `sp item` | `create` `get` `list` `delete` `help` | ☑ |
-| `sp item create` | `<TITLE>` `-u/--username` `--url` `--notes` `--field`(重复) `--totp` `--attach` `--db` `--keyfile` `-h` | ☑ |
-| `sp item get` | `<TITLE>` `-a/--field` `-t/--totp` `--db` `--keyfile` `-h` | ☑ |
-| `sp item list` | `--db` `--keyfile` `-h` | ☑ |
-| `sp item delete` | `<TITLE>` `--db` `--keyfile` `-h` | ☑ |
+| `sp item` | `create` `get` `list` `edit` `delete` `help` | ☑ |
+| `sp item create` | `<TITLE>` `-u/--username` `--url` `--notes` `--field`(重复) `--totp` `--tag`(重复) `--attach` `--db` `--keyfile` `-h` | ☑ |
+| `sp item get` | `<TITLE>` `-a/--field` `-t/--totp` `--index` `--db` `--keyfile` `-h` | ☑ |
+| `sp item list` | `--tag` `--enumerate` `--db` `--keyfile` `-h` | ☑ |
+| `sp item edit` | `<TITLE>` `--index` `-u/--username` `--url` `--notes` `-p/--password` `--totp` `--tag`(重复) `--field`(重复) `--remove-field`(重复) `--rename` `--db` `--keyfile` `-h` | ☑ |
+| `sp item delete` | `<TITLE>` `--index` `--db` `--keyfile` `-h` | ☑ |
 | `sp attachment` | `add` `list` `get` `help` | ☑ |
 | `sp attachment add` | `<TITLE>` `<FILE>` `--name` `--db` `--keyfile` `-h` | ☑ |
 | `sp attachment list` | `<TITLE>` `--db` `--keyfile` `-h` | ☑ |
 | `sp attachment get` | `<TITLE>` `<NAME>` `--out` `--db` `--keyfile` `-h` | ☑ |
-| `sp read` | `<URI>` `-n/--no-newline` `--out-file` `--db` `--keyfile` `-h` | ☑ |
-| `sp clip` | `<URI>` `--timeout` `--db` `--keyfile` `-h` | ☑ |
+| `sp read` | `<URI>` `-n/--no-newline` `--out-file` `--index` `--db` `--keyfile` `-h` | ☑ |
+| `sp clip` | `<URI>` `--timeout` `--index` `--db` `--keyfile` `-h` | ☑ |
 | `sp run` | `--env-file` `--no-masking` `--stdin` `-- <CMD>...`(必填) `--db` `--keyfile` `-h` | ☑ |
 | `sp inject` | `-i/--input`(必填) `-o/--output` `--stdout` `--db` `--keyfile` `-h` | ☑ |
 | `sp import` | `--dry-run` `dotenv <PATH>` `csv <PATH>` `bw-json <PATH>` `env` `files <PATH>` `--db` `--keyfile` `-h` | ☑ |

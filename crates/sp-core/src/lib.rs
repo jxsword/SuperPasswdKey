@@ -12,7 +12,7 @@ pub mod keymaterial;
 pub mod keypolicy;
 pub mod match_url;
 
-pub use entry::{CustomField, EntryModel};
+pub use entry::{CustomField, EntryModel, RESERVED_FIELD_NAMES};
 pub use error::SpError;
 pub use keymaterial::{CredentialFactors, SecureString};
 pub use keypolicy::KdfParams;
