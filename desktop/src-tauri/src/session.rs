@@ -12,6 +12,8 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
+use zeroize::Zeroizing;
+
 use sp_kffi::Vault;
 
 /// 非机密设置（任务 2 落 %APPDATA% 持久化；脚手架期用默认值）
@@ -312,6 +314,121 @@ impl Session {
         self.touch();
         Ok(data)
     }
+
+    // ---------- S1c：导入 / 导出 / 注入启动（design_docs/16 §4 增补） ----------
+
+    /// 导入提交（解析管道在 command 层复用 sp-cli importer 单源；写路径经本会话
+    /// actor 逐条 add_entry + 单次 save_session）。中途失败（候选未过 validate）
+    /// 时返回错误、不调用 save——但已入 actor 内存的条目会随后续任意保存一并
+    /// 落盘（候选均由导入器按模板生成，实际失败面极小；与 CLI import 的
+    /// "内存构建、末端落盘"语义一致）。
+    pub fn import_commit(&mut self, models: Vec<sp_core::EntryModel>) -> Result<usize, String> {
+        let path = self.session_db_path()?;
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        for m in &models {
+            v.add_entry(model_to_draft(m.clone()))
+                .map_err(|e| describe(&e))?;
+        }
+        v.save_session(path).map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(models.len())
+    }
+
+    /// 导出加密归档（S1c：经 kffi actor 会话凭据零凭据入参，DR-012 A1 同源；
+    /// 口令由 GUI 对话框两遍输入后合一传入，不落持久层）
+    pub fn export_archive(
+        &mut self,
+        path: &str,
+        passphrase: &str,
+    ) -> Result<ExportSummaryDto, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        let s = v
+            .export_encrypted(path.to_string(), passphrase.to_string())
+            .map_err(|e| describe(&e))?;
+        self.touch();
+        Ok(ExportSummaryDto {
+            entries: s.entries,
+            attachments: s.attachments,
+            history_total: s.history_total,
+            warnings: s.warnings,
+        })
+    }
+
+    /// 注入启动（S1c：sp run 语义 GUI 化——进程生成经 sp-cli::spawner 单源
+    /// （F8 唯一进程生成点，argv 直 exec 无 shell，design_docs/04）；env 值从
+    /// 本会话条目解析、键经 posix_name 净化、受保护变量拒绝（SP-F-301）；子进程
+    /// stdio 继承、无遮蔽（对齐 sp run --no-masking 的文档口径）；秘密仅存在于
+    /// 子进程环境，不落盘）
+    pub fn launch_with_env(
+        &mut self,
+        program: &str,
+        args: &[String],
+        title: &str,
+        fields: &[String],
+    ) -> Result<u32, String> {
+        let v = self
+            .active_vault()
+            .ok_or_else(|| "会话已锁定，请重新解锁".to_string())?;
+        let detail = v
+            .find_entry_full(title.to_string())
+            .map_err(|e| describe(&e))?;
+        let mut envs: Vec<(String, Zeroizing<String>)> = Vec::new();
+        for field in fields {
+            let value = match field.as_str() {
+                "UserName" => detail.username.clone().map(Zeroizing::new),
+                "Password" => detail.password.clone().map(Zeroizing::new),
+                "URL" => detail.url.clone().map(Zeroizing::new),
+                "totp" | "TOTP" => Some(Zeroizing::new(
+                    v.entry_totp_now(title.to_string())
+                        .map_err(|e| describe(&e))?,
+                )),
+                other => detail
+                    .custom_fields
+                    .iter()
+                    .find(|f| f.name == *other)
+                    .map(|f| Zeroizing::new(f.value.clone())),
+            };
+            let Some(value) = value else {
+                return Err(format!("条目 '{title}' 缺少字段 '{field}'"));
+            };
+            let key = sp_cli::f8::posix_name(field);
+            if sp_cli::f8::is_protected(&key) {
+                return Err(format!("拒绝注入受保护环境变量 '{key}'（SP-F-301）"));
+            }
+            envs.push((key, value));
+        }
+        let child = sp_cli::spawner::spawn_child(program, args, &envs, false, false)
+            .map_err(|e| format!("启动 '{program}' 失败：{e}"))?;
+        self.touch();
+        Ok(child.id())
+    }
+}
+
+/// EntryModel → FfiEntryDraft（导入候选经会话 actor 写路径的桥接；FFI 面的
+/// password 为普通 String——UniFFI 约束，见 sp-kffi 模块文档 R13-1）
+fn model_to_draft(m: sp_core::EntryModel) -> sp_kffi::FfiEntryDraft {
+    sp_kffi::FfiEntryDraft {
+        title: m.title,
+        username: m.username,
+        password: m.password.map(|p| p.as_str().to_string()),
+        url: m.url,
+        notes: m.notes,
+        otp: m.otp,
+        custom_fields: m
+            .custom_fields
+            .into_iter()
+            .map(|f| sp_kffi::FfiCustomField {
+                name: f.name,
+                value: f.value.as_str().to_string(),
+                protected: f.protected,
+            })
+            .collect(),
+        tags: m.tags,
+    }
 }
 
 // ---------- GUI DTO（serde 序列化面；字段与前端 api.ts 镜像一一对应） ----------
@@ -428,6 +545,15 @@ impl EntryDraftDto {
             tags: self.tags,
         }
     }
+}
+
+/// 导出摘要 DTO（S1c：GUI 导出结果展示；机密值不进此结构）
+#[derive(serde::Serialize, Debug)]
+pub struct ExportSummaryDto {
+    pub entries: usize,
+    pub attachments: usize,
+    pub history_total: usize,
+    pub warnings: Vec<String>,
 }
 
 /// FfiError → 类别文案（只映射类别，不携带凭据值——SP-F-804 审查口径）
@@ -902,6 +1028,129 @@ mod tests {
         match s.attachment_list("WithFiles") {
             Err(err) => assert!(err.contains("锁定"), "unexpected: {err}"),
             Ok(_) => panic!("locked session must deny attachment list"),
+        }
+    }
+
+    // ---------- S1c：导入 / 导出 / 注入启动 ----------
+
+    fn import_model(title: &str, secret: &str) -> sp_core::EntryModel {
+        sp_core::EntryModel {
+            title: title.into(),
+            username: None,
+            password: Some(sp_core::SecureString::new(secret.into())),
+            url: None,
+            notes: Some("source: test".into()),
+            custom_fields: vec![],
+            otp: None,
+            tags: vec![],
+        }
+    }
+
+    #[test]
+    fn import_commit_writes_entries_and_persists() {
+        let f = Fixture::new("import");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let n = s
+            .import_commit(vec![
+                import_model("[dotenv/.env#1]", "sp-test-only-imp-1"),
+                import_model("[dotenv/.env#2]", "sp-test-only-imp-2"),
+            ])
+            .expect("import_commit");
+        assert_eq!(n, 2);
+        // 持久化验证：锁定重开后仍可见
+        s.lock_now();
+        s.unlock(&f.0, "test-db-pass", None).expect("re-unlock");
+        let list = s.entry_list().expect("list");
+        assert!(list.iter().any(|e| e.title == "[dotenv/.env#1]"));
+        assert!(list.iter().any(|e| e.title == "[dotenv/.env#2]"));
+        // 锁定态拒绝
+        s.lock_now();
+        match s.import_commit(vec![import_model("x", "y")]) {
+            Err(err) => assert!(err.contains("锁定"), "unexpected: {err}"),
+            Ok(_) => panic!("locked session must deny import"),
+        }
+    }
+
+    #[test]
+    fn export_archive_writes_encrypted_file() {
+        let f = Fixture::new("export");
+        let dir = f.0.parent().unwrap().join("out");
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("export.age");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        let summary = s
+            .export_archive(out.to_string_lossy().as_ref(), "sp-test-only-pass")
+            .expect("export");
+        assert_eq!(summary.entries, 2, "fixture 两条目");
+        let data = std::fs::read(&out).expect("archive exists");
+        assert!(data.len() > 16);
+        assert!(
+            !String::from_utf8_lossy(&data).contains("test-db-pass"),
+            "归档必须为密文（不含库口令字面量）"
+        );
+        // 锁定态拒绝
+        s.lock_now();
+        match s.export_archive(out.to_string_lossy().as_ref(), "p") {
+            Err(err) => assert!(err.contains("锁定"), "unexpected: {err}"),
+            Ok(_) => panic!("locked session must deny export"),
+        }
+    }
+
+    #[test]
+    fn launch_with_env_validates_and_spawns() {
+        let f = Fixture::new("launch");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+
+        // 缺字段 → 明确报错
+        match s.launch_with_env(
+            "cmd",
+            &[],
+            "Demo",
+            &["Password".to_string(), "NoSuchField".to_string()],
+        ) {
+            Err(err) => assert!(err.contains("NoSuchField"), "{err}"),
+            Ok(_) => panic!("missing field must error"),
+        }
+        // 受保护变量拒绝（SP-F-301）：条目携带名为 PATH 的自定义字段时，
+        // 注入该字段名会被保护名单拒绝
+        s.entry_create(draft_dto("WithPath", "p")).expect("create");
+        {
+            // 给 WithPath 挂 PATH 自定义字段（经编辑面写入）
+            let mut d = draft_dto("WithPath", "p");
+            d.custom_fields = vec![CustomFieldDto {
+                name: "PATH".into(),
+                value: "C:\\evil".into(),
+                protected: false,
+            }];
+            s.entry_edit("WithPath", d).expect("seed PATH field");
+        }
+        match s.launch_with_env("cmd", &[], "WithPath", &["PATH".to_string()]) {
+            Err(err) => assert!(err.contains("SP-F-301"), "{err}"),
+            Ok(_) => panic!("protected var must be refused"),
+        }
+
+        // 正常启动（Windows：cmd /c exit 0——仅验证 spawn 成功返回 pid）
+        #[cfg(windows)]
+        {
+            let pid = s
+                .launch_with_env(
+                    "cmd",
+                    &["/c".to_string(), "exit 0".to_string()],
+                    "Demo",
+                    &["Password".to_string()],
+                )
+                .expect("spawn");
+            assert!(pid > 0);
+        }
+
+        // 锁定态拒绝
+        s.lock_now();
+        match s.launch_with_env("cmd", &[], "Demo", &["Password".to_string()]) {
+            Err(err) => assert!(err.contains("锁定"), "unexpected: {err}"),
+            Ok(_) => panic!("locked session must deny launch"),
         }
     }
 }

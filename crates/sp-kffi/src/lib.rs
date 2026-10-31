@@ -327,6 +327,12 @@ enum VaultCmd {
         path: String,
         resp: Res<()>,
     },
+    /// 导出加密归档（S1c：GUI 导出经会话凭据复用 CLI 同源实现；Rust-only 面）
+    ExportEncrypted {
+        path: String,
+        passphrase: String,
+        resp: Res<sp_kdbx::export::ExportSummary>,
+    },
     AddAttachment {
         title: String,
         name: String,
@@ -428,6 +434,19 @@ fn vault_worker(
                 resp,
                 sp_kdbx::save_atomic(&db, std::path::Path::new(&path), &session_factors)
                     .map_err(FfiError::from),
+            ),
+            VaultCmd::ExportEncrypted {
+                path,
+                passphrase,
+                resp,
+            } => respond(
+                resp,
+                sp_kdbx::export::export_encrypted_archive(
+                    &db,
+                    std::path::Path::new(&path),
+                    &passphrase,
+                )
+                .map_err(FfiError::from),
             ),
             VaultCmd::AddAttachment {
                 title,
@@ -617,6 +636,25 @@ impl Vault {
         let (tx, rx) = channel();
         self.tx
             .send(VaultCmd::ListAttachments { title, resp: tx })
+            .map_err(|_| worker_unavailable())?;
+        rx.recv().map_err(|_| worker_unavailable())?
+    }
+
+    /// 导出加密归档（S1c：复用工作线程内驻留的会话凭据写库导出，DR-012 A1 同源；
+    /// passphrase 由 GUI 对话框两遍输入后合一传入，不落持久层。锁定后返回
+    /// Format("vault worker unavailable")。）
+    pub fn export_encrypted(
+        &self,
+        path: String,
+        passphrase: String,
+    ) -> Result<sp_kdbx::export::ExportSummary, FfiError> {
+        let (tx, rx) = channel();
+        self.tx
+            .send(VaultCmd::ExportEncrypted {
+                path,
+                passphrase,
+                resp: tx,
+            })
             .map_err(|_| worker_unavailable())?;
         rx.recv().map_err(|_| worker_unavailable())?
     }

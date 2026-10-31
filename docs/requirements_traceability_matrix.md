@@ -1,6 +1,6 @@
 # 需求追踪矩阵（Requirements Traceability Matrix）
 
-- SRS 版本：V1.11（2026-10-31；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
+- SRS 版本：V1.12（2026-10-31；V1.0 定稿 2026-10-26）｜设计列在设计文档定稿后回填｜测试列在实现阶段回填
 - 状态图例：🟢 已覆盖｜🟡 部分（后置项注明）｜⚪ 计划中
 
 | 需求编号 | 需求标题 | 来源（基线/DR） | 设计文档 | 测试用例 | 状态 |
@@ -63,5 +63,7 @@
 | SP-F-908 | 桌面 GUI 条目浏览（列表/搜索/详情只读/TOTP/复制，S1a MVP） | DR-014 | 16 | 组件测试（vitest：列表渲染/搜索过滤/详情/TOTP 轮询/复制调用）+ Rust session 测试扩展（entry_list/entry_get/entry_totp/clip_copy 惰性锁库语义）；CI desktop job 全绿；真实库手工验收待用户 | 🟢（自动化）/🟡 手工项待用户 |
 | SP-F-909 | 桌面 GUI 条目写路径（创建/编辑/删除 + 显示/放大显示，S1b-1；S1b-2b 扩展自定义字段编辑 UI） | DR-014, SP-F-103 | 16 | kffi find_entry_full/delete_entry 单测（custom_fields 保真 roundtrip + 删除 NotFound）；Rust session 测试（创建/编辑改名/删除/锁定拒绝/错 otp 拒绝/空白标签拒绝）；vitest（表单校验对齐 CLI/自定义字段行增删与保留名校验/删除确认/放大显示模态/显示切换）；真实库手工验收待用户 | 🟢（自动化）/🟡 手工项待用户 |
 | SP-F-910 | 桌面 GUI 附件管理（列表/添加/下载，S1b-2b） | SP-F-104, DR-014 | 16 | kffi list_attachments e2e + desktop session 测试（add/list/get roundtrip + 同名覆盖 + 锁定拒绝）；vitest（附件渲染/下载调用/添加流）；下载限权 `icacls` 核对为手工项 | 🟢（自动化）/🟡 手工项待用户 |
+| SP-F-911 | 桌面 GUI 导入/导出向导（S1c） | SP-F-401~403, SP-F-501~503, DR-014 | 16 | desktop session 测试（import 写入/持久化/锁定拒绝、export 密文性/锁定拒绝）+ vitest（扫描报告/提交/口令校验）；导入结果 KeePassXC 可见为手工项 | 🟢（自动化）/🟡 手工项待用户 |
+| SP-F-912 | 桌面 GUI 注入启动器（S1c） | SP-F-301, DR-014 | 16 | desktop session 测试（缺字段/受保护变量拒绝/锁定拒绝/spawn 返回 PID）+ vitest（字段选择/参数透传/错误展示）；实际应用启动为手工项 | 🟢（自动化）/🟡 手工项待用户 |
 
 \* 测试用例编号在实现阶段（H3/H4/H5/H6/H7）按此前缀回填；round-trip 对拍测试覆盖 SP-F-101/102/103/104/601 的互操作维度。

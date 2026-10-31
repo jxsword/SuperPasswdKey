@@ -8,6 +8,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 mod autostart;
@@ -21,7 +22,10 @@ use tauri::{
     Manager, State,
 };
 
-use session::{describe, EntryDetailDto, EntryDraftDto, EntrySummaryDto, Session, SessionStatus};
+use session::{
+    describe, EntryDetailDto, EntryDraftDto, EntrySummaryDto, ExportSummaryDto, Session,
+    SessionStatus,
+};
 use settings::SettingsFile;
 
 /// 会话锁（Mutex<Session>；Vault Send+!Sync 由 Mutex 补足 Sync）。
@@ -253,6 +257,183 @@ fn clip_copy(text: String) -> Result<(), String> {
     Ok(())
 }
 
+// ---------- S1c：导入 / 导出 / 注入启动（design_docs/16 §4 增补） ----------
+
+/// 解析指定 kind 的发现列表（复用 sp-cli importer 单源；纯函数无会话状态）
+fn parse_import_findings(
+    kind: &str,
+    path: Option<&str>,
+) -> Result<Vec<sp_cli::importer::Finding>, String> {
+    let p = Path::new(path.unwrap_or_default());
+    let res = match kind {
+        "dotenv" => sp_cli::importer::parse_dotenv(p),
+        "csv" => sp_cli::importer::parse_csv(p),
+        "bw-json" => sp_cli::importer::parse_bw_json(p),
+        "env" => Ok(sp_cli::importer::parse_env_snapshot()),
+        "files" => sp_cli::importer::parse_files(p),
+        other => return Err(format!("unknown import kind '{other}'")),
+    };
+    res.map_err(|e| e.to_string())
+}
+
+/// 导入候选 DTO（值不回传前端——密码长度与来源信息足够确认，SP-F-707 口径）
+#[derive(serde::Serialize)]
+struct ImportCandidateDto {
+    title: String,
+    notes: Option<String>,
+    password_len: usize,
+}
+
+/// 导入扫描结果 DTO（三级去重报告 + 候选清单）
+#[derive(serde::Serialize)]
+struct ImportScanDto {
+    total: usize,
+    unique: usize,
+    l1_duplicates: usize,
+    l2_merged: usize,
+    l3_conflicts: usize,
+    manual_review: Vec<String>,
+    candidates: Vec<ImportCandidateDto>,
+}
+
+/// 导入扫描（S1c 向导第 1 步：不触库、不解锁，纯解析 + 三级去重）
+#[tauri::command]
+fn import_scan(kind: String, path: Option<String>) -> Result<ImportScanDto, String> {
+    let findings = parse_import_findings(&kind, path.as_deref())?;
+    let report = sp_cli::importer::build_candidates(findings);
+    Ok(ImportScanDto {
+        total: report.total,
+        unique: report.unique,
+        l1_duplicates: report.l1_duplicates,
+        l2_merged: report.l2_merged,
+        l3_conflicts: report.l3_conflicts,
+        manual_review: report.manual_review,
+        candidates: report
+            .candidates
+            .iter()
+            .map(|m| ImportCandidateDto {
+                title: m.title.clone(),
+                notes: m.notes.clone(),
+                password_len: m.password.as_ref().map(|p| p.as_str().len()).unwrap_or(0),
+            })
+            .collect(),
+    })
+}
+
+/// 导入提交（S1c 向导第 2 步：重新解析后经会话 actor 逐条写入 + 单次保存；
+/// 会话锁定即拒绝——与所有写路径同门禁）
+#[tauri::command]
+fn import_commit(
+    state: State<SessionState>,
+    kind: String,
+    path: Option<String>,
+) -> Result<usize, String> {
+    let findings = parse_import_findings(&kind, path.as_deref())?;
+    let report = sp_cli::importer::build_candidates(findings);
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .import_commit(report.candidates)
+}
+
+/// 导出结果（归档路径 + 摘要）
+#[derive(serde::Serialize)]
+struct ExportArchiveOut {
+    path: String,
+    summary: ExportSummaryDto,
+}
+
+/// 导出加密归档（S1c：口令两遍输入 → 系统保存对话框 → 会话凭据导出 →
+/// 限权收敛。passphrase 仅存在于本次调用栈，不落持久层）
+#[tauri::command]
+fn export_archive(
+    app: tauri::AppHandle,
+    state: State<SessionState>,
+    passphrase: String,
+    passphrase2: String,
+) -> Result<ExportArchiveOut, String> {
+    if passphrase.is_empty() {
+        return Err("归档口令不能为空".into());
+    }
+    if passphrase != passphrase2 {
+        return Err("两次口令不一致".into());
+    }
+    use tauri_plugin_dialog::DialogExt;
+    let Some(target) = app
+        .dialog()
+        .file()
+        .set_file_name("sp-export.age")
+        .blocking_save_file()
+    else {
+        return Err("已取消".into());
+    };
+    let path = match target {
+        tauri_plugin_dialog::FilePath::Path(p) => p,
+        other => return Err(format!("unsupported dialog target: {other:?}")),
+    };
+    let summary = state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .export_archive(path.to_string_lossy().as_ref(), &passphrase)?;
+    sp_core::fsperms::restrict(&path)
+        .map_err(|e| format!("归档限权收敛失败（文件已写出）：{e}"))?;
+    Ok(ExportArchiveOut {
+        path: path.to_string_lossy().to_string(),
+        summary,
+    })
+}
+
+/// 注入启动（S1c：从 GUI 以 sp run 语义启动应用——进程生成经 sp-cli::spawner
+/// 单源，env 值从会话条目解析，秘密不落盘）
+#[tauri::command]
+fn launch_with_env(
+    state: State<SessionState>,
+    program: String,
+    args: Vec<String>,
+    title: String,
+    fields: Vec<String>,
+) -> Result<u32, String> {
+    if program.trim().is_empty() {
+        return Err("程序路径不能为空".into());
+    }
+    if fields.is_empty() {
+        return Err("至少选择一个注入字段".into());
+    }
+    state
+        .0
+        .lock()
+        .expect("session poisoned")
+        .launch_with_env(&program, &args, &title, &fields)
+}
+
+/// 注入启动的程序浏览（系统打开对话框；取消返回空串）
+#[tauri::command]
+fn pick_file(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(target) = app.dialog().file().blocking_pick_file() else {
+        return Ok(String::new());
+    };
+    match target {
+        tauri_plugin_dialog::FilePath::Path(p) => Ok(p.to_string_lossy().to_string()),
+        other => Err(format!("unsupported dialog target: {other:?}")),
+    }
+}
+
+/// 导入来源目录浏览（files 类；取消返回空串）
+#[tauri::command]
+fn pick_folder(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(target) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(String::new());
+    };
+    match target {
+        tauri_plugin_dialog::FilePath::Path(p) => Ok(p.to_string_lossy().to_string()),
+        other => Err(format!("unsupported dialog target: {other:?}")),
+    }
+}
+
 fn main() {
     // 设置先于会话装配：双超时取自 settings.json（损坏回落默认值）
     let cfg = settings::load_or_default();
@@ -286,7 +467,13 @@ fn main() {
             attachment_list,
             attachment_add,
             attachment_download,
-            clip_copy
+            clip_copy,
+            import_scan,
+            import_commit,
+            export_archive,
+            launch_with_env,
+            pick_file,
+            pick_folder
         ])
         .setup(move |app| {
             // 窗口策略：托盘实例启动即弹解锁窗（DR-013"每次进程启动首次主密码"）；

@@ -107,3 +107,58 @@ export const attachmentDownload = (title: string, name: string) =>
 
 /** 复制到剪贴板（Rust 侧 arboard + 30s 超时清空，对齐 CLI clip 语义） */
 export const clipCopy = (text: string) => invoke<void>("clip_copy", { text });
+
+// ---------- S1c：导入 / 导出 / 注入启动 ----------
+
+/** 导入候选（值不回传前端——密码长度与来源信息足够确认，SP-F-707 口径） */
+export interface ImportCandidate {
+  title: string;
+  notes: string | null;
+  password_len: number;
+}
+
+export interface ImportScanResult {
+  total: number;
+  unique: number;
+  l1_duplicates: number;
+  l2_merged: number;
+  l3_conflicts: number;
+  manual_review: string[];
+  candidates: ImportCandidate[];
+}
+
+export const importScan = (kind: string, path: string | null) =>
+  invoke<ImportScanResult>("import_scan", { kind, path });
+
+export const importCommit = (kind: string, path: string | null) =>
+  invoke<number>("import_commit", { kind, path });
+
+export interface ExportSummary {
+  entries: number;
+  attachments: number;
+  history_total: number;
+  warnings: string[];
+}
+
+export interface ExportArchiveOut {
+  path: string;
+  summary: ExportSummary;
+}
+
+/** 导出加密归档（口令两遍输入；Rust 侧弹保存对话框 + 限权收敛） */
+export const exportArchive = (passphrase: string, passphrase2: string) =>
+  invoke<ExportArchiveOut>("export_archive", { passphrase, passphrase2 });
+
+/** 注入启动（sp run 语义：argv 直 exec，env 从会话条目解析，秘密不落盘） */
+export const launchWithEnv = (
+  program: string,
+  args: string[],
+  title: string,
+  fields: string[],
+) => invoke<number>("launch_with_env", { program, args, title, fields });
+
+/** 通用文件浏览（注入启动程序/导入来源文件；取消返回空串） */
+export const pickFile = () => invoke<string>("pick_file");
+
+/** 目录浏览（导入 files 类来源；取消返回空串） */
+export const pickFolder = () => invoke<string>("pick_folder");

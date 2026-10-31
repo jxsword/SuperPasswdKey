@@ -1,6 +1,6 @@
 # SuperPasswdKey 软件需求规格说明书（SRS）
 
-- 版本：**V1.11（2026-10-31，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP；V1.6 变更=新增 SP-F-909 桌面 GUI 条目写路径（S1b-1：创建/编辑/删除 + 显示/放大显示交互）；V1.7 变更=新增 SP-F-108 标签分类（KDBX4 原生 Tags 全栈：CLI+GUI，S1b-2）；V1.8 变更=新增 SP-F-910 桌面 GUI 附件管理 + SP-F-909 扩展自定义字段编辑 UI（S1b-2b）；V1.9 变更=SP-F-904 扩展 keyfile 路径记忆（settings.json keyfile_path）+ SP-F-909 编辑中暂停空闲锁定 + CLI 参数校验前置（无库依赖校验移至解锁之前）；V1.10 变更=SP-F-102 CLI edit 入口落地（`sp item edit`，patch 语义+校验前置）+ 同名条目策略定版 DR-016（允许同名 + `--index` 组内序号寻址：item get/edit/delete/read/clip 与 list --enumerate）；V1.11 变更=SP-F-102 受保护自定义字段落地（S1d-1/DR-017：keepass-ng vendored 补丁解除 DR-005 v0.1 限制，CLI `--field-secret` + GUI 保护勾选，字段级 ChaCha20 与 Password/TOTP 同机制））**
+- 版本：**V1.12（2026-10-31，V1.0 定稿三轮审核见 docs/reviews/srs_review.md；V1.1 变更=F1 扩展升级为 SP-F-7xx/DR-006；V1.2 变更=Android 从非目标升级为正式需求 SP-F-8xx/DR-009；V1.3 变更=桌面 Windows 批次升级为正式需求 SP-F-9xx/DR-013 批次 1；V1.4 变更=登录自动保存升级为正式需求 SP-F-708，step8；V1.5 变更=桌面 GUI 前端选型 Vue3+Vite（DR-014，修订 SP-F-901"静态零 Node"表述）+ 新增 SP-F-908 桌面 GUI 条目浏览 MVP；V1.6 变更=新增 SP-F-909 桌面 GUI 条目写路径（S1b-1：创建/编辑/删除 + 显示/放大显示交互）；V1.7 变更=新增 SP-F-108 标签分类（KDBX4 原生 Tags 全栈：CLI+GUI，S1b-2）；V1.8 变更=新增 SP-F-910 桌面 GUI 附件管理 + SP-F-909 扩展自定义字段编辑 UI（S1b-2b）；V1.9 变更=SP-F-904 扩展 keyfile 路径记忆（settings.json keyfile_path）+ SP-F-909 编辑中暂停空闲锁定 + CLI 参数校验前置（无库依赖校验移至解锁之前）；V1.10 变更=SP-F-102 CLI edit 入口落地（`sp item edit`，patch 语义+校验前置）+ 同名条目策略定版 DR-016（允许同名 + `--index` 组内序号寻址：item get/edit/delete/read/clip 与 list --enumerate）；V1.11 变更=SP-F-102 受保护自定义字段落地（S1d-1/DR-017：keepass-ng vendored 补丁解除 DR-005 v0.1 限制，CLI `--field-secret` + GUI 保护勾选，字段级 ChaCha20 与 Password/TOTP 同机制）；V1.12 变更=新增 SP-F-911 桌面 GUI 导入/导出向导 + SP-F-912 桌面 GUI 注入启动器（S1c：CLI 语义单源复用，秘密不落盘））**
 - 开发模型：瀑布（三轮审核：完整性→一致性→可执行性，记录见 `docs/reviews/srs_review.md`）
 - 需求来源：《docs/research/自研需求基线_SuperPasswdKey.md》（B1–B22）、决策记录 DR-001~005、2 天冲刺计划两轮复审修正
 - 编号体系：`SP-F-1xx` 库与条目｜`SP-F-2xx` CLI｜`SP-F-3xx` F8 注入｜`SP-F-4xx` 导入器｜`SP-F-5xx` 导出｜`SP-F-6xx` TOTP｜`SP-F-7xx` 浏览器扩展（V1.1 新增）｜`SP-F-8xx` Android（V1.2 新增）｜`SP-F-9xx` 桌面 Windows（V1.3 新增）｜`SP-N-xxx` 非功能｜`SP-C-xxx` 约束
@@ -263,6 +263,14 @@ KDBX4 格式规范（keepass.info/help/kb/kdbx_4.html，2026-10-25 核实）；R
 **SP-F-910 桌面 GUI 附件管理（P1，S1b-2b，confirmed）**
 - 描述：详情页附件区——列表（sp-kffi Rust-only 面 list_attachments，语义=sp_kdbx::list_attachments 单源）、添加（文件选择器读字节经 Rust add_attachment 同名覆盖，对齐 CLI sp attachment add 语义，save_session 零凭据保存）、下载（Rust 侧系统保存对话框 tauri-plugin-dialog → 落盘 + 限权收敛复用 sp-core::fsperms 单源——与 CLI attachment_get 同语义 icacls/0600）；锁定态拒绝；机密不进前端存储（附件字节经 invoke 瞬态传递，不落前端持久层）。
 - 验收：kffi e2e（list/add/get roundtrip + 同名覆盖）+ desktop session 测试（roundtrip/覆盖/锁定拒绝）+ vitest（附件渲染/下载调用）；下载文件 `icacls` 核对仅当前用户可读（手工项）。
+
+**SP-F-911 桌面 GUI 导入/导出向导（P1，S1c，confirmed）**
+- 描述：导入向导（两阶段：扫描=复用 sp-cli importer 单源管道不触库不解锁 → 确认提交=经会话 actor 逐条写入 + 单次 save_session；候选值不回传前端，表格仅标题/来源/密码长度）；导出对话框（age 加密归档，实现下沉 sp-kdbx::export 单源、经 kffi 会话凭据零凭据入参（DR-012 A1 同源）+ 保存对话框 + 限权收敛）。明文导出仅限 CLI `--plaintext` 三重防护，GUI 不提供。
+- 验收：desktop session 测试（import 写入/持久化/锁定拒绝、export 密文性/锁定拒绝）+ vitest（扫描报告/提交调用、口令校验）；导入结果在 KeePassXC 可见（手工项）。
+
+**SP-F-912 桌面 GUI 注入启动器（P1，S1c，confirmed）**
+- 描述：选条目 + 勾选注入字段（UserName/Password/URL/TOTP/自定义字段）+ 程序路径/参数 → 以 `sp run` 语义启动：进程生成经 sp-cli::spawner 单源（argv 直 exec 无 shell，design_docs/04）、env 键 posix_name 净化、受保护变量拒绝（SP-F-301）、子进程 stdio 继承无遮蔽（对齐 `--no-masking` 文档口径）；秘密仅存在于子进程环境，不落盘。
+- 验收：desktop session 测试（缺字段/受保护变量拒绝/锁定拒绝/正常 spawn 返回 PID）+ vitest（字段选择/参数透传/错误展示）；GUI 内帮助含 CLI `.env` 工作流等价写法。
 
 ## 4. 非功能需求（SP-N，全部绑定测量方法）
 

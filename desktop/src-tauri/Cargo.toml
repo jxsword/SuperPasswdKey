@@ -1,6 +1,6 @@
 [package]
 name = "sp-desktop"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.85"
 license = "AGPL-3.0-only"
@@ -21,13 +21,18 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 winreg = "0.55"
+# 导入候选的零化承载（session::launch_with_env env 值）
+zeroize = "1"
 # GUI 复制按钮剪贴板（对齐 CLI sp clip 语义：arboard + 30s 超时清空）
 arboard = "3"
 # NM host 单进程嵌入：协议编解码/动作分发/请求循环库化复用（DR-013，任务书_step7 任务 3）
 sp-nmhost = { path = "../../crates/sp-nmhost" }
 # 内核复用：会话语义与 sp-kffi actor 同源（DR-012 A1 凭据因子留驻 + save_session）
 sp-core = { path = "../../crates/sp-core" }
+sp-kdbx = { path = "../../crates/sp-kdbx" }
 sp-kffi = { path = "../../crates/sp-kffi" }
+# S1c：导入管道复用 CLI importer 单源（parse 三级去重/候选聚类，同一实现）
+sp-cli = { path = "../../crates/sp-cli" }
 
 [dev-dependencies]
 sp-kdbx = { path = "../../crates/sp-kdbx" }
