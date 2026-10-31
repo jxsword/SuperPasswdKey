@@ -5,11 +5,13 @@ import EntryFormModal from "../src/components/EntryFormModal.vue";
 const api = vi.hoisted(() => ({
   entryCreate: vi.fn(),
   entryEdit: vi.fn(),
+  setEditing: vi.fn(),
 }));
 
 vi.mock("../src/api", () => ({
   entryCreate: api.entryCreate,
   entryEdit: api.entryEdit,
+  setEditing: api.setEditing,
 }));
 
 const initial = {
@@ -26,6 +28,15 @@ const initial = {
 describe("EntryFormModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    api.setEditing.mockResolvedValue(undefined);
+  });
+
+  it("挂载/卸载切换编辑态（暂停空闲锁定）", async () => {
+    const wrapper = mount(EntryFormModal, { props: { mode: "create" } });
+    await flushPromises();
+    expect(api.setEditing).toHaveBeenCalledWith(true);
+    wrapper.unmount();
+    expect(api.setEditing).toHaveBeenLastCalledWith(false);
   });
 
   it("创建模式：空标题报错不提交", async () => {

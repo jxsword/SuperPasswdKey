@@ -7,9 +7,12 @@ const api = vi.hoisted(() => ({
   entryTotp: vi.fn(),
   clipCopy: vi.fn(),
   entryDelete: vi.fn(),
+  entryCreate: vi.fn(),
+  entryEdit: vi.fn(),
   attachmentList: vi.fn(),
   attachmentAdd: vi.fn(),
   attachmentDownload: vi.fn(),
+  setEditing: vi.fn(),
 }));
 
 vi.mock("../src/api", () => ({
@@ -17,9 +20,12 @@ vi.mock("../src/api", () => ({
   entryTotp: api.entryTotp,
   clipCopy: api.clipCopy,
   entryDelete: api.entryDelete,
+  entryCreate: api.entryCreate,
+  entryEdit: api.entryEdit,
   attachmentList: api.attachmentList,
   attachmentAdd: api.attachmentAdd,
   attachmentDownload: api.attachmentDownload,
+  setEditing: api.setEditing,
 }));
 
 const baseDetail = {
@@ -38,6 +44,23 @@ describe("DetailPanel", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     api.attachmentList.mockResolvedValue(["a.txt", "b.bin"]);
+    api.setEditing.mockResolvedValue(undefined);
+    api.entryEdit.mockResolvedValue(undefined);
+    api.entryCreate.mockResolvedValue(undefined);
+  });
+
+  it("编辑保存后（标题未变）详情自动重载", async () => {
+    api.entryGet.mockResolvedValue(baseDetail);
+    const wrapper = mount(DetailPanel, { props: { title: "GitHub", touch: () => {} } });
+    await flushPromises();
+    expect(api.entryGet).toHaveBeenCalledTimes(1);
+    // 打开编辑表单 → 保存（标题未变）→ onSaved 触发详情重载（entryGet 第二次调用）
+    await wrapper.findAll("button.action")[0].trigger("click");
+    const form = wrapper.find(".form-panel");
+    await form.find("button.primary").trigger("click");
+    await flushPromises();
+    expect(api.entryGet).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
   });
 
   it("渲染附件列表与下载按钮", async () => {

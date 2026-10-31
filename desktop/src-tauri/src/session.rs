@@ -41,6 +41,10 @@ pub struct Session {
     unlocked_at: Option<Instant>,
     last_active: Option<Instant>,
     settings: Settings,
+    /// 编辑中（2026-10-31 验收反馈）：EntryFormModal 打开期间置 true——暂停 idle
+    /// 超时（防编辑被空闲锁定打断丢失输入）；absolute 超时不受影响（绝对上限是
+    /// 安全底线）。模态关闭/视图卸载必须复位 false（前端 onUnmounted）。
+    editing: bool,
 }
 
 /// 给前端的会话状态（不含任何机密）
@@ -62,6 +66,16 @@ impl Session {
             unlocked_at: None,
             last_active: None,
             settings,
+            editing: false,
+        }
+    }
+
+    /// 编辑态开关（EntryFormModal 打开/关闭时由前端调用）。
+    pub fn set_editing(&mut self, active: bool) {
+        self.editing = active;
+        // 打开编辑即视为一次活动（idle 计时从此时重算，关闭后按正常空闲逻辑走）
+        if active && self.vault.is_some() {
+            self.last_active = Some(Instant::now());
         }
     }
 
@@ -82,7 +96,8 @@ impl Session {
         let Some(t) = self.last_active else {
             return false;
         };
-        let idle_hit = t.elapsed().as_millis() as u64 >= self.settings.idle_ms;
+        // 编辑中暂停 idle 超时（absolute 照常判定——绝对上限不因编辑而绕过）
+        let idle_hit = !self.editing && t.elapsed().as_millis() as u64 >= self.settings.idle_ms;
         let absolute_hit = self
             .unlocked_at
             .map(|u| u.elapsed().as_millis() as u64 >= self.settings.absolute_ms)
@@ -142,6 +157,8 @@ impl Session {
         self.db_path = None;
         self.unlocked_at = None;
         self.last_active = None;
+        // 锁定即退出编辑态（前端模态卸载时还会 set_editing(false)，幂等）
+        self.editing = false;
     }
 
     pub fn status(&mut self) -> SessionStatus {
@@ -152,14 +169,18 @@ impl Session {
             .db_path
             .clone()
             .unwrap_or_else(Self::default_vault_path);
-        let idle_left = self
-            .last_active
-            .map(|t| {
-                self.settings
-                    .idle_ms
-                    .saturating_sub(t.elapsed().as_millis() as u64)
-            })
-            .unwrap_or(0);
+        // 编辑中 idle 不触发锁定——展示同步为满值（避免顶栏倒计时归零却不锁的矛盾观感）
+        let idle_left = if self.editing && self.vault.is_some() {
+            self.settings.idle_ms
+        } else {
+            self.last_active
+                .map(|t| {
+                    self.settings
+                        .idle_ms
+                        .saturating_sub(t.elapsed().as_millis() as u64)
+                })
+                .unwrap_or(0)
+        };
         let abs_left = self
             .unlocked_at
             .map(|t| {
@@ -626,6 +647,52 @@ mod tests {
             !s.status().unlocked,
             "session must be locked after lazy expiry"
         );
+    }
+
+    #[test]
+    fn editing_suspends_idle_but_not_absolute() {
+        // 2026-10-31 验收反馈：编辑中不因空闲锁定打断（absolute 上限保留）
+        let f = Fixture::new("gui-editing");
+        let mut s = Session::new(Settings {
+            idle_ms: 0, // idle 触底：正常态任何访问即锁
+            absolute_ms: u64::MAX,
+        });
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+
+        // 编辑中：idle=0 也不锁，entry_list 正常返回
+        s.set_editing(true);
+        assert!(s.entry_list().is_ok(), "editing must suspend idle timeout");
+        assert!(s.status().unlocked);
+
+        // 退出编辑态：恢复空闲判定 → 首次访问即锁
+        s.set_editing(false);
+        let err = s.entry_list().expect_err("idle resumes after editing");
+        assert!(err.contains("锁定"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn editing_does_not_extend_absolute_timeout() {
+        // absolute=0：即便编辑中，绝对上限到期仍锁（安全底线不被编辑绕过）
+        let f = Fixture::new("gui-editing-abs");
+        let mut s = Session::new(Settings {
+            idle_ms: u64::MAX,
+            absolute_ms: 0,
+        });
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        s.set_editing(true);
+        let err = s.entry_list().expect_err("absolute must still lock");
+        assert!(err.contains("锁定"), "unexpected: {err}");
+        assert!(!s.status().unlocked);
+    }
+
+    #[test]
+    fn lock_now_resets_editing_flag() {
+        let f = Fixture::new("gui-editing-lock");
+        let mut s = Session::new(Settings::default());
+        s.unlock(&f.0, "test-db-pass", None).expect("unlock");
+        s.set_editing(true);
+        s.lock_now();
+        assert!(!s.editing, "lock must clear editing flag");
     }
 
     fn draft_dto(title: &str, password: &str) -> EntryDraftDto {

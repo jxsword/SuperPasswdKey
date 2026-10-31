@@ -204,6 +204,26 @@ pub fn item_create(opts: CreateOptions) -> Result<(), SpError> {
     } = opts;
     let cli_db = cli_db.as_deref();
     let cli_keyfile = cli_keyfile.as_deref();
+    // 参数校验前置（2026-10-31 验收反馈）：在解锁（keyfile 加载/KDF）之前完成
+    // 无库依赖的校验——坏参数不提示主密码、不进入 KDF 即退出 4。
+    EntryModel {
+        title: title.clone(),
+        username: None,
+        password: None,
+        url: None,
+        notes: None,
+        custom_fields: fields
+            .iter()
+            .map(|(name, value)| CustomField {
+                name: name.clone(),
+                value: Zeroizing::new(value.clone()),
+                protected: false,
+            })
+            .collect(),
+        otp: totp.clone(),
+        tags: tags.clone(),
+    }
+    .validate()?;
     let cfg = config::load()?;
     let db_path = resolve_db(cli_db, &cfg)?;
     let mut c = cfg.clone();
@@ -523,6 +543,8 @@ pub fn read(
     no_newline: bool,
     out_file: Option<PathBuf>,
 ) -> Result<(), SpError> {
+    // URI 格式校验前置：坏参数在解锁（KDF）之前即报参数错误（2026-10-31 验收反馈）
+    parse_uri_public(&uri)?;
     let value = read_value(cli_db, cli_keyfile, &uri)?;
     match out_file {
         Some(path) => {
@@ -557,6 +579,8 @@ pub fn clip(
     uri: String,
     timeout_secs: Option<u64>,
 ) -> Result<(), SpError> {
+    // URI 格式校验前置：坏参数在解锁（KDF）之前即报参数错误（2026-10-31 验收反馈）
+    parse_uri_public(&uri)?;
     let value = read_value(cli_db, cli_keyfile, &uri)?;
     let cfg = config::load()?;
     let timeout = timeout_secs.unwrap_or(cfg.clip_timeout_secs);

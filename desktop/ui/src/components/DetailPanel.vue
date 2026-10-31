@@ -142,9 +142,12 @@ async function doDelete() {
   }
 }
 
-function onSaved(oldTitle: string | null, newTitle: string) {
+async function onSaved(oldTitle: string | null, newTitle: string) {
   showEdit.value = false;
   emit("saved", oldTitle, newTitle);
+  // 保存后立即重载详情（2026-10-31 验收反馈：标题未变时 watch 不触发，
+  // 需显式刷新才能看到新密码/新字段/新标签）
+  if (newTitle === props.title) await load();
 }
 
 onUnmounted(stopTotpPolling);

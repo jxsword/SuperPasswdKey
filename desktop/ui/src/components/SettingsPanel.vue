@@ -8,6 +8,8 @@ const emit = defineEmits<{ close: [] }>();
 const idleMin = ref(5);
 const absMin = ref(30);
 const autostart = ref(false);
+// 当前设置快照（保存时透传非面板管辖字段如 keyfile_path）
+const current = ref<api.SettingsFile | null>(null);
 const msg = ref("");
 const busy = ref(false);
 
@@ -17,6 +19,7 @@ const minToMs = (min: number) => Math.max(60000, Math.round(min * 60000));
 onMounted(async () => {
   try {
     const s = await api.getSettings();
+    current.value = s;
     idleMin.value = msToMin(s.idle_ms);
     absMin.value = msToMin(s.absolute_ms);
     autostart.value = s.autostart;
@@ -29,10 +32,12 @@ async function save() {
   busy.value = true;
   msg.value = "保存中…";
   try {
+    // keyfile_path 不归设置面板管——透传当前值（后端另有保留兜底）
     await api.saveSettings({
       idle_ms: minToMs(Number(idleMin.value)),
       absolute_ms: minToMs(Number(absMin.value)),
       autostart: autostart.value,
+      keyfile_path: current.value?.keyfile_path ?? "",
     });
     msg.value = "已保存：自启即时生效；超时配置重启后生效。";
   } catch (e) {

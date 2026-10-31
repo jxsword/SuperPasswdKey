@@ -2,7 +2,7 @@
 // 条目创建/编辑表单（模态）。校验对齐 CLI 语义：标题必填；otp 必须 otpauth:// 开头
 // （对应 CLI 退出码 4 的参数错误，前端预校验 + 后端兜底）；同名允许（靠列表/搜索区分）。
 // 编辑时 custom_fields 原样回传保真（S1b-1 不渲染编辑控件，S1b-2 提供 UI）。
-import { computed, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import * as api from "../api";
 import type { CustomField, EntryDetail, EntryDraft } from "../api";
 
@@ -44,6 +44,14 @@ const fields = ref<CustomField[]>(
 const showPassword = ref(props.mode === "edit");
 const busy = ref(false);
 const error = ref("");
+
+// 编辑中暂停空闲锁定（absolute 上限保留）——模态打开即置位，关闭/卸载复位
+onMounted(() => {
+  api.setEditing(true).catch(() => {});
+});
+onUnmounted(() => {
+  api.setEditing(false).catch(() => {});
+});
 
 const heading = computed(() => (props.mode === "create" ? "新的项目" : `编辑：${props.initial?.title}`));
 
