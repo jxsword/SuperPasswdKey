@@ -6,6 +6,11 @@ on:
     tags: ["v*"]
   pull_request:
 
+# —— S3 审计（2026-10-31）：默认只读（B-2）——除 windows tag 发布 job 显式
+# contents: write 外，其余 job 的 GITHUB_TOKEN 统一收敛为 contents: read。
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   # —— S0 CI 缓存配方：钉版号即缓存 key 分量，升级依赖时同步 bump ——
@@ -27,7 +32,7 @@ jobs:
       extension: ${{ steps.filter.outputs.extension }}
       workflows: ${{ steps.filter.outputs.workflows }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（S3 审计 SHA 钉版）
         with:
           fetch-depth: 0 # push 事件需 before 提交做 diff（合并提交多 parent，浅克隆不可靠）
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3（SHA 钉版）
@@ -63,14 +68,14 @@ jobs:
     permissions:
       contents: write  # tag 流程：gh release create/upload（draft Release，DR-007）
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（S3 审计 SHA 钉版）
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4（S3 审计 SHA 钉版）
         with:
           version: 11
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4（S3 审计 SHA 钉版）
         with:
           node-version: 22
           # 不加 cache: pnpm——PR 运行不执行 pnpm install，store 目录不存在会导致
@@ -78,15 +83,15 @@ jobs:
           # tag 构建收益仅 30-60s，不值得。extension job 的 pnpm 缓存保留。
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 分支头（S3 审计钉版；该 action 按工具链分支发布，升级需有意 bump）
         with:
           components: rustfmt, clippy
 
       - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2（S3 审计 SHA 钉版）
 
       - name: Cache KeePassXC portable (round-trip interop tests)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4（S3 审计 SHA 钉版）
         id: keepassxc
         with:
           path: keepassxc-portable
@@ -127,7 +132,7 @@ jobs:
 
       - name: Cache tauri-cli (desktop bundle, tag only)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4（S3 审计 SHA 钉版）
         id: tauri_cli_win
         with:
           path: ~/.cargo/bin/cargo-tauri.exe
@@ -201,7 +206,7 @@ jobs:
 
       - name: Upload release artifact（workflow 留档）
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4（S3 审计 SHA 钉版）
         with:
           name: sp-windows-release
           path: dist/*.zip
@@ -211,17 +216,17 @@ jobs:
     if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.rust_root == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（S3 审计 SHA 钉版）
         with:
           fetch-depth: 0
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 分支头（S3 审计钉版；该 action 按工具链分支发布，升级需有意 bump）
         with:
           components: rustfmt, clippy
 
       - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2（S3 审计 SHA 钉版）
 
       - name: Install KeePassXC (round-trip interop tests)
         run: sudo apt-get update && sudo apt-get install -y keepassxc
@@ -242,14 +247,14 @@ jobs:
     if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.rust_root == 'true' || needs.changes.outputs.desktop == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（S3 审计 SHA 钉版）
       # 容器内无 rust-toolchain.toml 锁定版本（1.99.1 musl 未预装），覆盖为 stable
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2（S3 审计 SHA 钉版）
         with:
           rust-version: "stable"
       # desktop 独立 workspace（tauri 树；配置 desktop/src-tauri/deny.toml，
       # graph.targets 收敛 MSVC——与 ubuntu 容器宿主无关）
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2（S3 审计 SHA 钉版）
         with:
           rust-version: "stable"
           manifest-path: desktop/src-tauri/Cargo.toml
@@ -266,14 +271,14 @@ jobs:
       run:
         working-directory: desktop/src-tauri
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（S3 审计 SHA 钉版）
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4（S3 审计 SHA 钉版）
         with:
           version: 11
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4（S3 审计 SHA 钉版）
         with:
           node-version: 22
           cache: pnpm
@@ -288,12 +293,12 @@ jobs:
         run: pnpm test
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 分支头（S3 审计钉版；该 action 按工具链分支发布，升级需有意 bump）
         with:
           components: rustfmt, clippy
 
       - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2（S3 审计 SHA 钉版）
         with:
           workspaces: desktop/src-tauri
 
@@ -307,7 +312,7 @@ jobs:
         run: cargo test
 
       - name: Cache tauri-cli
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4（S3 审计 SHA 钉版）
         id: tauri_cli
         with:
           path: ~/.cargo/bin/cargo-tauri.exe
@@ -328,12 +333,12 @@ jobs:
     if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.rust_root == 'true' || needs.changes.outputs.android == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（S3 审计 SHA 钉版）
         with:
           fetch-depth: 0
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 分支头（S3 审计钉版；该 action 按工具链分支发布，升级需有意 bump）
         with:
           components: rustfmt, clippy
 
@@ -341,10 +346,10 @@ jobs:
         run: rustup target add x86_64-linux-android aarch64-linux-android
 
       - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2（S3 审计 SHA 钉版）
 
       - name: Cache cargo-ndk
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4（S3 审计 SHA 钉版）
         id: cargondk
         with:
           path: ~/.cargo/bin/cargo-ndk
@@ -374,7 +379,7 @@ jobs:
     if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.rust_root == 'true' || needs.changes.outputs.android == 'true' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（S3 审计 SHA 钉版）
         with:
           fetch-depth: 0
 
@@ -386,16 +391,16 @@ jobs:
           df -h /
 
       - name: Install Rust toolchain (locked by rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable 分支头（S3 审计钉版；该 action 按工具链分支发布，升级需有意 bump）
 
       - name: Install Android target (on the pinned toolchain)
         run: rustup target add x86_64-linux-android
 
       - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2（S3 审计 SHA 钉版）
 
       - name: Cache cargo-ndk
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4（S3 审计 SHA 钉版）
         id: cargondk
         with:
           path: ~/.cargo/bin/cargo-ndk
@@ -412,7 +417,7 @@ jobs:
           cp target/x86_64-linux-android/debug/libsp_kffi.so android/app/src/main/jniLibs/x86_64/
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4（S3 审计 SHA 钉版）
         with:
           distribution: temurin
           java-version: 17
@@ -441,7 +446,7 @@ jobs:
         run: echo "RUNNER_IMAGE=${ImageVersion:-unknown}" >> "$GITHUB_ENV"
 
       - name: Cache Android SDK system images
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4（S3 审计 SHA 钉版）
         with:
           # 只缓存 system-images：emulator/platform-tools 是 runner 预装目录（root 属主），
           # 恢复时原地覆盖报 Cannot utime → 整包作废（2026-10-30 run 实测）
@@ -449,7 +454,7 @@ jobs:
           key: android-sdk-images-api34-google_apis-x86_64-v2-${{ env.RUNNER_IMAGE }}
 
       - name: Cache AVD snapshot
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4（S3 审计 SHA 钉版）
         id: avd
         with:
           path: |
@@ -463,7 +468,7 @@ jobs:
 
       - name: Generate AVD snapshot for caching (cache miss only)
         if: steps.avd.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2（S3 审计 SHA 钉版）
         with:
           api-level: 34
           target: google_apis
@@ -477,7 +482,7 @@ jobs:
           script: echo "Generated AVD snapshot for caching."
 
       - name: Run emulator e2e (TestActivity assertions)
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2（S3 审计 SHA 钉版）
         with:
           api-level: 34
           target: google_apis
@@ -513,11 +518,11 @@ jobs:
       run:
         working-directory: extension
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4（S3 审计 SHA 钉版）
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4（S3 审计 SHA 钉版）
         with:
           version: 11
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4（S3 审计 SHA 钉版）
         with:
           node-version: 22 # pnpm 11 要求 ≥22.13
           cache: pnpm

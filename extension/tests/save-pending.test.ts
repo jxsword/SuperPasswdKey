@@ -1,9 +1,17 @@
 // SavePendingStore 纯逻辑单测（SP-F-708）：tab 隔离 / TTL 过期 / confirm 移除 /
-// dismiss 忽略本会话不再询问（host 维度）/ 内存纪律（无任何 storage 调用面）。
+// dismiss 忽略本会话不再询问（host 维度）/ sweepExpired 主动清扫（S3 审计）/
+// 内存纪律（无任何 storage 调用面）。
+// fixture 惯例（AGENTS §9）：值统一 sp-test-only 前缀，经模板字面量构造——
+// 纯合成测试值，非真实凭据（HANDOFF §3.7 Mimosa 拦截面口径）。
 import { describe, expect, it } from "vitest";
 import { PENDING_TTL_MS, SavePendingStore, urlHost } from "../src/background/save-pending";
 
-const LOGIN = { url: "https://ex.com/login", username: "u1", password: "p1" };
+const T = "sp-test-only";
+const LOGIN = {
+  url: "https://ex.com/login",
+  username: `${T}-u1`,
+  password: `${T}-p1`,
+};
 
 function store(now = 1_000_000): { s: SavePendingStore; tick: (ms: number) => void } {
   let t = now;
@@ -23,8 +31,8 @@ describe("SavePendingStore", () => {
   it("capture 后 peek 可见（不移除），confirm 移除", () => {
     const { s } = store();
     s.capture(LOGIN, 7);
-    expect(s.peek(7)?.username).toBe("u1");
-    expect(s.peek(7)?.username).toBe("u1"); // peek 幂等（锁定重试需要保留）
+    expect(s.peek(7)?.username).toBe(`${T}-u1`);
+    expect(s.peek(7)?.username).toBe(`${T}-u1`); // peek 幂等（锁定重试需要保留）
     const it = s.confirm(7);
     expect(it?.url).toBe("https://ex.com/login");
     expect(s.peek(7)).toBeNull();
@@ -46,11 +54,31 @@ describe("SavePendingStore", () => {
     expect(s.confirm(7)).toBeNull();
   });
 
+  it("sweepExpired：无人问津的过期项被主动清掉（S3 审计口径）", () => {
+    const { s, tick } = store();
+    s.capture(LOGIN, 7);
+    tick(PENDING_TTL_MS + 1);
+    s.sweepExpired();
+    expect(s.peek(7)).toBeNull();
+    expect(s.confirm(7)).toBeNull();
+  });
+
+  it("sweepExpired：未过期项保留", () => {
+    const { s, tick } = store();
+    s.capture(LOGIN, 7);
+    tick(PENDING_TTL_MS - 1);
+    s.sweepExpired();
+    expect(s.peek(7)).not.toBeNull();
+  });
+
   it("新捕获覆盖同 tab 旧捕获", () => {
     const { s } = store();
     s.capture(LOGIN, 7);
-    s.capture({ url: "https://ex2.com/", username: "u2", password: "p2" }, 7);
-    expect(s.peek(7)?.username).toBe("u2");
+    s.capture(
+      { url: "https://ex2.com/", username: `${T}-u2`, password: `${T}-p2` },
+      7,
+    );
+    expect(s.peek(7)?.username).toBe(`${T}-u2`);
   });
 
   it("dismiss：本会话同 host 不再询问", () => {
@@ -62,7 +90,10 @@ describe("SavePendingStore", () => {
     s.capture(LOGIN, 7);
     expect(s.peek(7)).toBeNull();
     // 别的 host 不受影响
-    s.capture({ url: "https://other.com/", username: "u", password: "p" }, 7);
+    s.capture(
+      { url: "https://other.com/", username: `${T}-u`, password: `${T}-p` },
+      7,
+    );
     expect(s.peek(7)).not.toBeNull();
     // dismiss 清掉了 pending：确认无残留
     expect(s.confirm(7)?.url).toBe("https://other.com/");

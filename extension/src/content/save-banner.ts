@@ -77,12 +77,16 @@ export function showSaveBanner(
   root.appendChild(btnRow);
   document.documentElement.appendChild(root);
 
-  dismissBtn.addEventListener("click", () => {
+  dismissBtn.addEventListener("click", (e) => {
+    // S3 审计（2026-10-31）：页面脚本可对 DOM 合成 MouseEvent——非可信事件
+    // （event.isTrusted=false）不代替用户操作；确认按钮同理。
+    if (!e.isTrusted) return;
     removeSaveBanner();
     cb.onDismiss();
   });
 
-  saveBtn.addEventListener("click", async () => {
+  saveBtn.addEventListener("click", async (e) => {
+    if (!e.isTrusted) return; // 同上：合成点击不得绕过用户确认（SP-F-708）
     saveBtn.disabled = true;
     status.textContent = "保存中…";
     let res: SaveConfirmResult;

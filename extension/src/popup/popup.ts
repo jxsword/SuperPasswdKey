@@ -59,6 +59,7 @@ async function doFill(m: LoginMatch): Promise<void> {
     id: m.id,
     username: m.username,
     withTotp: m.hasOtp,
+    url: m.url, // S3 审计：SW fill 前与目标 tab 当前 URL 复核 host
   });
   if (res.filled) {
     window.close();

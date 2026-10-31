@@ -73,4 +73,14 @@ export class SavePendingStore {
     }
     this.item = null;
   }
+
+  /** 主动清扫：无论哪个 tab，过期项直接丢弃（S3 审计 2026-10-31：keepalive
+   *  周期调用——密码不在内存滞留超过 TTL 一个周期以上，原实现仅在 peek
+   *  路径清理，无人问津时密码滞留至 SW 回收）。 */
+  sweepExpired(): void {
+    const it = this.item;
+    if (it && this.nowMs() - it.capturedAt > PENDING_TTL_MS) {
+      this.item = null;
+    }
+  }
 }
