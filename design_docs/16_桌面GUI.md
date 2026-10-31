@@ -1,6 +1,6 @@
 # 16 桌面 GUI：Vue 3 + Vite 全功能界面（DR-014）
 
-- 状态：v1.4（2026-10-31，S1b-2b 落地：详情页附件管理（列表/添加/下载限权，tauri-plugin-dialog Rust 侧调用）+ 自定义字段编辑 UI（v0.1 protected 不持久化如实披露）+ sp-core::fsperms 限权单源下沉；v1.3 标签全栈；v1.2 S1b-1 写路径；v1.1 §8 手工验收；v1.0 S1a 设计与 MVP 落地）
+- 状态：v1.5（2026-10-31，§8.4 验收清单独立化为 docs/manual/acceptance_checklist.md——GUI+CLI 双清单供逐项执行；v1.4 S1b-2b 落地；v1.3 标签全栈；v1.2 S1b-1 写路径；v1.1 §8 手工验收；v1.0 S1a 设计与 MVP 落地）
 - 上游依赖：design_docs/15（桌面形态，托盘/会话/NM 嵌入基座）、DR-013（凭据驻留策略）、DR-012（actor 内凭据因子）、SP-F-9xx（SRS §3.9 桌面需求）
 - 范围：S1a = 设计与只读 MVP（解锁/列表/搜索/详情/TOTP/复制）；写路径（条目 CRUD/附件/TOTP 编辑）在 S1b，导入导出/注入启动器在 S1c
 
@@ -240,28 +240,6 @@ sequenceDiagram
 
 ### 8.4 手工验收清单（真实库端到端）
 
-**前置准备**：
-1. 按 §8.1 任一方式获得并启动 sp-desktop.exe（托盘实例）；
-2. 准备库：`sp init --db "%APPDATA%\SuperPasswdKey\vault.kdbx"`（若已有库跳过），并建 2 条条目，其中 1 条带 TOTP：
-   ```bash
-   sp item create github -u alice --url https://github.com
-   sp item create work-vpn -u bob --totp "otpauth://totp/Test?secret=JBSWY3DPEHPK3PXP&issuer=Test"
-   ```
-3. 备好剪贴板验证环境（记事本或任意可粘贴处）。
-
-| # | 步骤 | 预期结果 | 覆盖 |
-|---|---|---|---|
-| A1 | 启动 sp-desktop.exe | 主窗弹出（解锁面板），托盘图标出现 | SP-F-901 |
-| A2 | 点主窗 X 关闭 → 托盘左键单击 | 窗口隐藏、进程保留；托盘单击重新唤出 | SP-F-901 |
-| B1 | 输入错误主密码解锁 | 提示"解锁失败：主密码或 keyfile 不正确"，保持锁定态 | SP-F-902 |
-| B2 | 输入正确主密码解锁 | 约 1–3s（KDF）后进入主界面，条目列表自动加载 | SP-F-902 |
-| C1 | 搜索框输入子串（如 "git"） | 列表即时过滤（命中标题/用户名/URL） | SP-F-908 |
-| C2 | 清空搜索框 | 全量列表恢复 | SP-F-908 |
-| D1 | 点击条目查看详情 | 只读字段展示；密码显示为掩码 ●●●●●●●●（无明文回显） | SP-F-908 / SP-F-707 |
-| D2 | 点击密码"复制" → 立即粘贴 → 等待 30s 再粘贴 | 提示"已复制 密码，30 秒后自动清空"；首次粘贴得到正确值；30s 后粘贴为空 | SP-F-908（clip 语义单源） |
-| D3 | 打开带 TOTP 条目 → 观察 30s → 复制动态码粘贴 | 显示 6–8 位数字动态码；约 30s 自动刷新；粘贴值与 `sp item get work-vpn --totp` 一致 | SP-F-601 / SP-F-908 |
-| E1 | 设置面板：空闲锁定改 1 分钟 → 保存 → 重启应用 → 解锁后闲置 | 保存提示"超时配置重启后生效"；重启后顶栏倒计时递减，闲置 1 分钟自动切回解锁面板 | SP-F-903 / SP-F-904 |
-| E2 | 解锁后点顶栏"锁定" | 立即切回解锁面板（列表/详情内存态随视图卸载丢弃） | SP-F-903 / SP-F-707 |
-| F1 | 设置面板勾选自启 → `reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v SuperPasswdKey`；再取消勾选 | 勾选后注册表值存在（带引号 exe 全路径）；取消后值清零 | SP-F-905 |
-| G1 | GUI 解锁期间另开终端：`sp item list --db "%APPDATA%\SuperPasswdKey\vault.kdbx"` | CLI 独立解锁（再输一次主密码）后正常列出——两进程并存、会话互不干扰 | DR-013（每进程首次主密码） |
-| — | ⚠️ 全程注意 | GUI 解锁期间勿在 CLI/KeePassXC 修改同一库（MVP 无外部修改检测，见 §8.2 并发注意） | — |
+> **v1.5 起本节清单已由独立可执行清单取代**：[docs/manual/acceptance_checklist.md](../manual/acceptance_checklist.md)——含 GUI 全量清单（S1a 浏览 + S1b 写路径/标签/附件/放大显示等约 28 项）与 CLI 验收清单（init/item/clip/attachment/read/退出码语义约 22 项），每项带命令/预期输出/退出码与"实际结果"留档列，供逐项执行。本节原 S1a 12 步清单并入该文件不再重复。
+>
+> 执行前必读该文件 §0 前置准备：**必须重建**（PATH 中的 sp.exe 与已装桌面版均为 v0.3.0，不含 --tag 与 GUI 写路径）、主库先备份、CLI 测试用独立 `--db` 测试库隔离。
